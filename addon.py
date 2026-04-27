@@ -439,6 +439,12 @@ class BlenderMCPServer:
             "get_ambientcg_status": self.get_ambientcg_status,
             "search_ambientcg_assets": self.search_ambientcg_assets,
             "download_ambientcg_asset": self.download_ambientcg_asset,
+            # Sprint 3: scatter / array / curve / export / hdri rotation
+            "scatter_on_surface": self.scatter_on_surface,
+            "array_duplicate": self.array_duplicate,
+            "curve_extrude_profile": self.curve_extrude_profile,
+            "quick_export": self.quick_export,
+            "set_world_hdri_rotation": self.set_world_hdri_rotation,
         }
 
         # Add Polyhaven handlers only if enabled
@@ -2083,6 +2089,578 @@ class BlenderMCPServer:
         g = 0.30 + (1.0 - 0.30) * ratio
         b = 0.10 + (1.0 - 0.10) * (ratio ** 1.3)
         return (r, g, b)
+
+    # ------------------------------------------------------------------
+    # Sprint 3: scatter / array / curve / export / hdri rotation
+    # ------------------------------------------------------------------
+
+    def scatter_on_surface(self, surface_object, instance_objects,
+                           density=10.0, max_count=1000, seed=0,
+                           scale_min=0.8, scale_max=1.2,
+                           rotate_random=True, align_to_normal=True,
+                           parent_to_surface=False,
+                           collection_name=None):
+        """Distribute copies of one or more objects across the faces of a
+        surface mesh, area-weighted with random rotation/scale and optional
+        normal alignment.
+
+        Use cases: books on a shelf, bottles on a bar, gravel on a path,
+        scattered foliage on terrain, plates on a table.
+
+        Parameters:
+        - surface_object: mesh whose faces define the placement region
+        - instance_objects: object name OR list of names (one is picked at
+          random per placement). Originals are not moved; linked-data copies
+          are created so memory stays low.
+        - density: target placements per square meter of surface area
+        - max_count: hard cap on placements (safety)
+        - seed: RNG seed for reproducibility
+        - scale_min/max: random uniform scale multiplier per instance
+        - rotate_random: apply a random Z rotation to each instance
+        - align_to_normal: rotate instance so +Z aligns with face normal
+                           (good for surfaces, bad for vertical objects)
+        - parent_to_surface: parent each instance to the surface object
+        - collection_name: if set, link instances into a (newly created)
+                           collection by this name; otherwise active collection
+        """
+        import random as _random
+
+        surface = bpy.data.objects.get(surface_object)
+        if surface is None:
+            return {"error": f"Surface object '{surface_object}' not found"}
+        if surface.type != 'MESH':
+            return {"error": f"Surface '{surface_object}' is not a mesh (type={surface.type})"}
+
+        if isinstance(instance_objects, str):
+            instance_objects = [instance_objects]
+        instances = []
+        missing = []
+        for name in instance_objects:
+            o = bpy.data.objects.get(name)
+            if o is None:
+                missing.append(name)
+            else:
+                instances.append(o)
+        if missing:
+            return {"error": f"Instance objects not found: {missing}"}
+        if not instances:
+            return {"error": "instance_objects is empty"}
+
+        # Evaluate the surface to honor modifiers / shape keys
+        depsgraph = bpy.context.evaluated_depsgraph_get()
+        surface_eval = surface.evaluated_get(depsgraph)
+        mw = surface_eval.matrix_world
+        polys = surface_eval.data.polygons
+        verts = surface_eval.data.vertices
+        if not len(polys):
+            return {"error": "Surface mesh has no polygons"}
+
+        # Compute per-polygon world area + cumulative distribution
+        face_areas = []
+        face_world_centers = []
+        face_world_normals = []
+        face_world_verts = []
+        total_area = 0.0
+        for p in polys:
+            # Sample area in world space (account for non-uniform scale)
+            w_pts = [mw @ verts[vi].co for vi in p.vertices]
+            if len(w_pts) < 3:
+                face_areas.append(0.0); face_world_centers.append(mw @ p.center)
+                face_world_normals.append((mw.to_3x3() @ p.normal).normalized())
+                face_world_verts.append(w_pts)
+                continue
+            # Triangulate area: sum of triangle fan from v0
+            area = 0.0
+            for i in range(1, len(w_pts) - 1):
+                e1 = w_pts[i] - w_pts[0]
+                e2 = w_pts[i + 1] - w_pts[0]
+                area += 0.5 * (e1.cross(e2)).length
+            face_areas.append(area)
+            face_world_centers.append(mw @ p.center)
+            face_world_normals.append((mw.to_3x3() @ p.normal).normalized())
+            face_world_verts.append(w_pts)
+            total_area += area
+
+        if total_area <= 0:
+            return {"error": "Surface area is zero (degenerate mesh?)"}
+
+        target = min(int(total_area * float(density)), int(max_count))
+        if target <= 0:
+            return {"error": f"Density {density} on area {total_area:.3f}m² yields zero placements"}
+
+        # Build cumulative weights for area-weighted face sampling
+        cum = []
+        running = 0.0
+        for a in face_areas:
+            running += a
+            cum.append(running)
+
+        # Set up collection
+        if collection_name:
+            coll = bpy.data.collections.get(collection_name)
+            if coll is None:
+                coll = bpy.data.collections.new(collection_name)
+                bpy.context.scene.collection.children.link(coll)
+        else:
+            coll = bpy.context.collection
+
+        rng = _random.Random(seed)
+        placed_names = []
+        # Up vector for normal alignment (Z axis of instance)
+        up = mathutils.Vector((0, 0, 1))
+
+        def sample_point_in_polygon(verts_list):
+            """Random point uniformly in a triangulated polygon (fan)."""
+            n = len(verts_list)
+            if n < 3:
+                return verts_list[0] if verts_list else mathutils.Vector((0, 0, 0))
+            # Triangle area-weighted picking among fan triangles
+            tris = []
+            sum_a = 0.0
+            for i in range(1, n - 1):
+                a = verts_list[0]; b = verts_list[i]; c = verts_list[i + 1]
+                ar = 0.5 * ((b - a).cross(c - a)).length
+                sum_a += ar
+                tris.append((a, b, c, sum_a))
+            if sum_a <= 0:
+                return verts_list[0]
+            r = rng.uniform(0, sum_a)
+            for (a, b, c, csum) in tris:
+                if r <= csum:
+                    # Barycentric random point in triangle
+                    r1 = rng.random()
+                    r2 = rng.random()
+                    if r1 + r2 > 1.0:
+                        r1 = 1.0 - r1
+                        r2 = 1.0 - r2
+                    return a + r1 * (b - a) + r2 * (c - a)
+            return tris[-1][0]
+
+        for i in range(target):
+            # Sample a face by cumulative area
+            r = rng.uniform(0, total_area)
+            # Linear search is fine for typical face counts; binary search would
+            # be marginally faster but adds bisect import for ~no win.
+            fi = 0
+            while fi < len(cum) and cum[fi] < r:
+                fi += 1
+            if fi >= len(face_areas):
+                fi = len(face_areas) - 1
+
+            point = sample_point_in_polygon(face_world_verts[fi])
+            normal = face_world_normals[fi]
+
+            # Pick a random instance source
+            src = rng.choice(instances)
+            inst = src.copy()
+            if src.data is not None:
+                inst.data = src.data   # share mesh data
+            inst.name = f"{src.name}_scatter_{i+1}"
+            coll.objects.link(inst)
+
+            # Position
+            inst.location = point
+
+            # Rotation: align local Z to normal then optional random spin
+            if align_to_normal and normal.length > 0:
+                quat = up.rotation_difference(normal)
+                inst.rotation_mode = 'QUATERNION'
+                inst.rotation_quaternion = quat
+                if rotate_random:
+                    # Add random twist around the new Z axis
+                    twist_q = mathutils.Quaternion(normal, rng.uniform(0, 6.283185))
+                    inst.rotation_quaternion = twist_q @ inst.rotation_quaternion
+            elif rotate_random:
+                inst.rotation_euler = (0, 0, rng.uniform(0, 6.283185))
+
+            # Scale
+            s = rng.uniform(scale_min, scale_max)
+            inst.scale = (s, s, s)
+
+            # Optional parenting
+            if parent_to_surface:
+                inst.parent = surface
+
+            placed_names.append(inst.name)
+
+        return {
+            "surface_object": surface_object,
+            "instance_sources": [o.name for o in instances],
+            "total_area_m2": round(total_area, 3),
+            "density_per_m2": float(density),
+            "placed_count": len(placed_names),
+            "first_5_placed": placed_names[:5],
+            "collection": coll.name,
+        }
+
+    def array_duplicate(self, source_object, mode="linear", count=5,
+                        offset=None, angle_deg=360.0, axis="Z",
+                        center=None, apply=False):
+        """Duplicate an object linearly or radially using a real Array
+        modifier (live or applied).
+
+        Parameters:
+        - source_object: mesh to duplicate
+        - mode: 'linear' | 'radial'
+        - count: total copies (including the original)
+        - offset: linear mode: [dx, dy, dz] world-space step between copies.
+                  None = use object dimensions × X axis (handy default).
+        - angle_deg: radial mode: total spread (default 360 = full ring)
+        - axis: radial mode: rotation axis 'X' | 'Y' | 'Z'
+        - center: radial mode: world-space pivot [x, y, z];
+                  None = use source_object location
+        - apply: True = apply the modifier (and remove the helper Empty for
+                 radial); False = keep live for further tweaking
+        """
+        obj = bpy.data.objects.get(source_object)
+        if obj is None:
+            return {"error": f"Source '{source_object}' not found"}
+        if int(count) < 2:
+            return {"error": "count must be >= 2"}
+
+        import math as _math
+        bpy.ops.object.select_all(action='DESELECT')
+        obj.select_set(True)
+        bpy.context.view_layer.objects.active = obj
+
+        if mode == "linear":
+            mod = obj.modifiers.new(name="MCPArrayLinear", type='ARRAY')
+            mod.count = int(count)
+            mod.use_relative_offset = False
+            mod.use_constant_offset = True
+            if offset is None:
+                # Default: one unit along X based on dimension
+                offset = [obj.dimensions.x * 1.05, 0.0, 0.0]
+            mod.constant_offset_displace = offset
+            helper_empty = None
+        elif mode == "radial":
+            # Radial uses an Empty with rotation
+            pivot = list(center) if center is not None else list(obj.location)
+            empty = bpy.data.objects.new(f"_array_pivot_{obj.name}", None)
+            empty.location = pivot
+            bpy.context.collection.objects.link(empty)
+            ax = axis.upper()
+            ax_idx = {"X": 0, "Y": 1, "Z": 2}.get(ax)
+            if ax_idx is None:
+                return {"error": f"Unknown axis '{axis}'. Use X/Y/Z."}
+            step = _math.radians(float(angle_deg) / int(count))
+            empty.rotation_euler = (0, 0, 0)
+            empty.rotation_euler[ax_idx] = step
+            mod = obj.modifiers.new(name="MCPArrayRadial", type='ARRAY')
+            mod.count = int(count)
+            mod.use_relative_offset = False
+            mod.use_constant_offset = False
+            mod.use_object_offset = True
+            mod.offset_object = empty
+            helper_empty = empty
+        else:
+            return {"error": f"Unknown mode '{mode}'. Use 'linear' or 'radial'."}
+
+        applied = False
+        if apply:
+            try:
+                bpy.ops.object.modifier_apply(modifier=mod.name)
+                applied = True
+                if helper_empty is not None:
+                    bpy.data.objects.remove(helper_empty, do_unlink=True)
+            except Exception as e:
+                return {"error": f"Array apply failed: {e}"}
+
+        return {
+            "source_object": source_object,
+            "mode": mode,
+            "count": int(count),
+            "offset": offset if mode == "linear" else None,
+            "angle_deg": float(angle_deg) if mode == "radial" else None,
+            "axis": axis if mode == "radial" else None,
+            "applied": applied,
+            "modifier_name": None if applied else mod.name,
+            "helper_empty": None if (apply or mode == "linear") else helper_empty.name,
+        }
+
+    def curve_extrude_profile(self, name, path_points,
+                              profile="round", thickness=0.02,
+                              resolution=12, closed=False, smooth=True,
+                              convert_to_mesh=False,
+                              location=(0, 0, 0)):
+        """Build a Blender curve from path_points and apply a bevel profile
+        for neon signs, brass pipes, cables, decorative trim, railings.
+
+        Parameters:
+        - name: name for the new object
+        - path_points: list of [x, y, z] (world space). >=2 points.
+        - profile: 'round' (cylindrical) | 'square' | 'flat' | name of an
+          existing 2D curve object to use as a custom profile
+        - thickness: bevel depth (radius for round, half-width for square)
+        - resolution: bevel resolution (round/square only)
+        - closed: True closes the curve into a loop
+        - smooth: True sets shade smooth (round profile only)
+        - convert_to_mesh: True converts curve to mesh after creation
+        - location: object origin (path_points are interpreted relative
+          to this if given non-zero; default places points in world space)
+        """
+        if not path_points or len(path_points) < 2:
+            return {"error": "path_points must contain >= 2 points"}
+
+        curve_data = bpy.data.curves.new(name=f"{name}_curve_data", type='CURVE')
+        curve_data.dimensions = '3D'
+        curve_data.resolution_u = max(2, int(resolution))
+
+        spline = curve_data.splines.new('BEZIER')
+        spline.bezier_points.add(count=len(path_points) - 1)
+        for i, pt in enumerate(path_points):
+            bp = spline.bezier_points[i]
+            bp.co = tuple(pt)
+            bp.handle_left_type = 'AUTO'
+            bp.handle_right_type = 'AUTO'
+        spline.use_cyclic_u = bool(closed)
+
+        # Bevel profile
+        if profile == "round":
+            curve_data.bevel_mode = 'ROUND'
+            curve_data.bevel_depth = float(thickness)
+            curve_data.bevel_resolution = max(0, int(resolution // 2))
+            custom_profile_name = None
+        elif profile == "square":
+            curve_data.bevel_mode = 'PROFILE'
+            curve_data.bevel_depth = float(thickness)
+            try:
+                curve_data.bevel_profile.preset = 'STEPS'
+            except Exception:
+                pass
+            custom_profile_name = None
+        elif profile == "flat":
+            curve_data.bevel_mode = 'ROUND'
+            curve_data.bevel_depth = 0.0
+            curve_data.extrude = float(thickness)
+            custom_profile_name = None
+        else:
+            # Treat as custom curve object name
+            custom = bpy.data.objects.get(profile)
+            if custom is None or custom.type != 'CURVE':
+                return {"error": f"profile '{profile}' must be 'round'/'square'/'flat' or a curve object name"}
+            curve_data.bevel_mode = 'OBJECT'
+            curve_data.bevel_object = custom
+            custom_profile_name = profile
+
+        obj = bpy.data.objects.new(name, curve_data)
+        obj.location = tuple(location)
+        bpy.context.collection.objects.link(obj)
+
+        if smooth and profile == "round":
+            curve_data.use_fill_caps = True
+
+        converted = False
+        if convert_to_mesh:
+            bpy.ops.object.select_all(action='DESELECT')
+            obj.select_set(True)
+            bpy.context.view_layer.objects.active = obj
+            try:
+                bpy.ops.object.convert(target='MESH')
+                converted = True
+            except Exception as e:
+                return {"error": f"Curve-to-mesh conversion failed: {e}"}
+
+        return {
+            "name": obj.name,
+            "type": obj.type,  # CURVE or MESH after conversion
+            "profile": profile,
+            "custom_profile_object": custom_profile_name,
+            "thickness": float(thickness),
+            "closed": bool(closed),
+            "point_count": len(path_points),
+            "converted_to_mesh": converted,
+        }
+
+    def quick_export(self, filepath, objects=None, format="auto",
+                     pack_textures=True, apply_modifiers=True,
+                     selected_only=False, axis_forward="-Z", axis_up="Y",
+                     draco=True):
+        """Export objects to GLB/FBX/OBJ/USD with sensible defaults for
+        contractor / 3D viewer / game engine handoff.
+
+        Format is auto-detected from the file extension; pass format='glb'
+        to override. Always packs textures for GLB by default (otherwise
+        clients open empty files — the #1 gotcha on r/blender).
+
+        Parameters:
+        - filepath: output path. Extension drives format if format='auto'.
+        - objects: list of object names to export. None = whole scene.
+        - format: 'auto' | 'glb' | 'gltf' | 'fbx' | 'obj' | 'usd' | 'usdz'
+        - pack_textures: GLB/USDZ embed textures into file
+        - apply_modifiers: bake modifier stack at export time
+        - selected_only: export only selected (overrides `objects`)
+        - axis_forward, axis_up: coordinate convention for FBX/OBJ
+        - draco: GLB Draco compression
+        """
+        # Determine format
+        ext = os.path.splitext(filepath)[1].lower().lstrip('.')
+        fmt = format.lower()
+        if fmt == "auto":
+            fmt = ext if ext in ("glb", "gltf", "fbx", "obj", "usd", "usdz") else "glb"
+
+        # Selection management
+        if not selected_only:
+            bpy.ops.object.select_all(action='DESELECT')
+            if objects:
+                missing = []
+                for name in objects:
+                    o = bpy.data.objects.get(name)
+                    if o is None:
+                        missing.append(name); continue
+                    o.select_set(True)
+                if missing:
+                    return {"error": f"Objects not found: {missing}"}
+                use_selection = True
+            else:
+                # Select everything
+                for o in bpy.context.scene.objects:
+                    if o.type in ('MESH', 'EMPTY', 'CURVE', 'ARMATURE', 'LIGHT', 'CAMERA'):
+                        o.select_set(True)
+                use_selection = False
+        else:
+            use_selection = True
+
+        # Ensure parent dir exists
+        os.makedirs(os.path.dirname(os.path.abspath(filepath)) or ".", exist_ok=True)
+
+        try:
+            if fmt in ("glb", "gltf"):
+                kwargs = dict(
+                    filepath=filepath,
+                    export_format='GLB' if fmt == "glb" else 'GLTF_SEPARATE',
+                    use_selection=use_selection if (selected_only or objects) else False,
+                    export_apply=apply_modifiers,
+                )
+                # Embed textures and Draco compression where supported
+                try: kwargs["export_image_format"] = 'AUTO'
+                except Exception: pass
+                if draco:
+                    try: kwargs["export_draco_mesh_compression_enable"] = True
+                    except Exception: pass
+                bpy.ops.export_scene.gltf(**kwargs)
+            elif fmt == "fbx":
+                bpy.ops.export_scene.fbx(
+                    filepath=filepath,
+                    use_selection=use_selection if (selected_only or objects) else False,
+                    bake_space_transform=True,
+                    apply_unit_scale=True,
+                    apply_scale_options='FBX_SCALE_NONE',
+                    use_mesh_modifiers=apply_modifiers,
+                    path_mode='COPY' if pack_textures else 'AUTO',
+                    embed_textures=bool(pack_textures),
+                    axis_forward=axis_forward,
+                    axis_up=axis_up,
+                )
+            elif fmt == "obj":
+                # Blender 4.x uses wm.obj_export; legacy export_scene.obj is gone
+                try:
+                    bpy.ops.wm.obj_export(
+                        filepath=filepath,
+                        export_selected_objects=use_selection if (selected_only or objects) else False,
+                        apply_modifiers=apply_modifiers,
+                        forward_axis={'-Z': 'NEGATIVE_Z', 'Z': 'Z',
+                                      '-Y': 'NEGATIVE_Y', 'Y': 'Y',
+                                      '-X': 'NEGATIVE_X', 'X': 'X'}.get(axis_forward, 'NEGATIVE_Z'),
+                        up_axis={'X': 'X', 'Y': 'Y', 'Z': 'Z'}.get(axis_up, 'Y'),
+                    )
+                except AttributeError:
+                    bpy.ops.export_scene.obj(
+                        filepath=filepath,
+                        use_selection=use_selection if (selected_only or objects) else False,
+                        use_mesh_modifiers=apply_modifiers,
+                        axis_forward=axis_forward,
+                        axis_up=axis_up,
+                    )
+            elif fmt in ("usd", "usdz"):
+                try:
+                    bpy.ops.wm.usd_export(
+                        filepath=filepath,
+                        selected_objects_only=use_selection if (selected_only or objects) else False,
+                        export_textures=pack_textures,
+                        evaluation_mode='RENDER' if apply_modifiers else 'VIEWPORT',
+                    )
+                except Exception as e:
+                    return {"error": f"USD export not available: {e}"}
+            else:
+                return {"error": f"Unsupported format '{fmt}'. Use glb/gltf/fbx/obj/usd/usdz."}
+        except Exception as e:
+            return {"error": f"Export failed: {e}"}
+
+        size = os.path.getsize(filepath) if os.path.exists(filepath) else 0
+        return {
+            "filepath": os.path.abspath(filepath),
+            "format": fmt,
+            "bytes_written": size,
+            "selected_only": selected_only,
+            "exported_objects": objects if objects else "all_scene",
+            "pack_textures": pack_textures,
+            "apply_modifiers": apply_modifiers,
+        }
+
+    def set_world_hdri_rotation(self, z_rotation_deg=0.0, strength=None):
+        """Rotate the world environment HDRI around Z and/or set its strength.
+
+        Convenient for time-of-day adjustments without re-downloading a new
+        HDRI: spin the existing one to put the sun behind/in-front-of the
+        camera.
+
+        Parameters:
+        - z_rotation_deg: rotation around Z (0 = original orientation)
+        - strength: if not None, set Background node strength
+        """
+        world = bpy.context.scene.world
+        if world is None:
+            return {"error": "Scene has no world environment. Download an HDRI first."}
+        if not world.use_nodes:
+            world.use_nodes = True
+        nt = world.node_tree
+
+        # Find existing TexEnvironment + Mapping or create them
+        env = next((n for n in nt.nodes if n.type == 'TEX_ENVIRONMENT'), None)
+        if env is None:
+            return {"error": "No TexEnvironment node — set an HDRI first via download_polyhaven_asset"}
+
+        bg = next((n for n in nt.nodes if n.type == 'BACKGROUND'), None)
+        out = next((n for n in nt.nodes if n.type == 'OUTPUT_WORLD'), None)
+
+        # Find or create Mapping + TexCoord between TexCoord and Env
+        mapping = next((n for n in nt.nodes if n.type == 'MAPPING'), None)
+        if mapping is None:
+            mapping = nt.nodes.new("ShaderNodeMapping")
+            mapping.location = (env.location.x - 200, env.location.y)
+        tex_coord = next((n for n in nt.nodes if n.type == 'TEX_COORD'), None)
+        if tex_coord is None:
+            tex_coord = nt.nodes.new("ShaderNodeTexCoord")
+            tex_coord.location = (mapping.location.x - 200, mapping.location.y)
+
+        # Wire if not already wired
+        # TexCoord.Generated -> Mapping.Vector -> Env.Vector
+        def _has_link(from_node, from_socket, to_node, to_socket):
+            for l in nt.links:
+                if (l.from_node == from_node and l.from_socket.name == from_socket
+                    and l.to_node == to_node and l.to_socket.name == to_socket):
+                    return True
+            return False
+        if not _has_link(tex_coord, "Generated", mapping, "Vector"):
+            nt.links.new(tex_coord.outputs["Generated"], mapping.inputs["Vector"])
+        if not _has_link(mapping, "Vector", env, "Vector"):
+            nt.links.new(mapping.outputs["Vector"], env.inputs["Vector"])
+
+        # Apply rotation
+        import math as _math
+        rot = list(mapping.inputs["Rotation"].default_value)
+        rot[2] = _math.radians(float(z_rotation_deg))
+        mapping.inputs["Rotation"].default_value = rot
+
+        result = {
+            "z_rotation_deg": float(z_rotation_deg),
+            "rotation_radians": [round(v, 4) for v in rot],
+        }
+        if strength is not None and bg is not None:
+            bg.inputs["Strength"].default_value = float(strength)
+            result["strength"] = float(strength)
+        return result
 
     def execute_code(self, code):
         """Execute arbitrary Blender Python code"""

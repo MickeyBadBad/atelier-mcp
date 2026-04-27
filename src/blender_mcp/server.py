@@ -977,6 +977,251 @@ def download_ambientcg_asset(
         return f"Error downloading ambientCG asset: {str(e)}"
 
 
+# --------------------------------------------------------------------------
+# Sprint 3 — scatter / array / curve / export / hdri
+# --------------------------------------------------------------------------
+
+@mcp.tool()
+def scatter_on_surface(
+    ctx: Context,
+    surface_object: str,
+    instance_objects: List[str],
+    density: float = 10.0,
+    max_count: int = 1000,
+    seed: int = 0,
+    scale_min: float = 0.8,
+    scale_max: float = 1.2,
+    rotate_random: bool = True,
+    align_to_normal: bool = True,
+    parent_to_surface: bool = False,
+    collection_name: str = None,
+) -> str:
+    """
+    Distribute copies of one or more objects across a surface mesh,
+    area-weighted with random rotation/scale and optional normal alignment.
+
+    Use cases: books on a shelf, bottles on a bar, gravel on a path,
+    scattered foliage on terrain, plates on a table.
+
+    Parameters:
+    - surface_object: mesh whose faces define the placement region
+    - instance_objects: name or list of names — randomly picked per placement
+    - density: target placements per square meter
+    - max_count: hard cap on placements (safety)
+    - seed: RNG seed for reproducibility
+    - scale_min, scale_max: random uniform scale multiplier per instance
+    - rotate_random: random rotation around the surface normal
+    - align_to_normal: rotate instance so +Z aligns with face normal
+                      (good for surfaces; disable for vertical decor)
+    - parent_to_surface: parent each instance to surface_object
+    - collection_name: link instances into a (newly created) collection
+
+    Linked-data copies are created so memory stays low.
+    """
+    if isinstance(instance_objects, str):
+        instance_objects = [instance_objects]
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("scatter_on_surface", {
+            "surface_object": surface_object,
+            "instance_objects": instance_objects,
+            "density": density,
+            "max_count": max_count,
+            "seed": seed,
+            "scale_min": scale_min,
+            "scale_max": scale_max,
+            "rotate_random": rotate_random,
+            "align_to_normal": align_to_normal,
+            "parent_to_surface": parent_to_surface,
+            "collection_name": collection_name,
+        })
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error in scatter_on_surface: {str(e)}")
+        return f"Error in scatter_on_surface: {str(e)}"
+
+
+@mcp.tool()
+def array_duplicate(
+    ctx: Context,
+    source_object: str,
+    mode: str = "linear",
+    count: int = 5,
+    offset: List[float] = None,
+    angle_deg: float = 360.0,
+    axis: str = "Z",
+    center: List[float] = None,
+    apply: bool = False,
+) -> str:
+    """
+    Duplicate an object linearly or radially using a Blender Array modifier
+    (live or applied).
+
+    Linear example (5 pendant lights spaced 1m on X):
+      array_duplicate('Pendant', 'linear', 5, offset=[1.0, 0, 0])
+    Radial example (8 chairs around a table center, full circle on Z):
+      array_duplicate('Chair', 'radial', 8, angle_deg=360, axis='Z',
+                      center=[0, 0, 0])
+
+    Parameters:
+    - source_object: object to duplicate
+    - mode: 'linear' | 'radial'
+    - count: total copies including the original (>= 2)
+    - offset: linear mode [dx, dy, dz] world-space step. None = default
+              dimensions.x × 1.05 along X.
+    - angle_deg: radial mode total spread (default 360 = full ring)
+    - axis: radial mode rotation axis 'X' | 'Y' | 'Z'
+    - center: radial mode pivot [x, y, z]; None = source object location
+    - apply: True applies modifier (and removes radial helper Empty);
+             False keeps it live for tweaking
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("array_duplicate", {
+            "source_object": source_object,
+            "mode": mode,
+            "count": count,
+            "offset": list(offset) if offset is not None else None,
+            "angle_deg": angle_deg,
+            "axis": axis,
+            "center": list(center) if center is not None else None,
+            "apply": apply,
+        })
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error in array_duplicate: {str(e)}")
+        return f"Error in array_duplicate: {str(e)}"
+
+
+@mcp.tool()
+def curve_extrude_profile(
+    ctx: Context,
+    name: str,
+    path_points: List[List[float]],
+    profile: str = "round",
+    thickness: float = 0.02,
+    resolution: int = 12,
+    closed: bool = False,
+    smooth: bool = True,
+    convert_to_mesh: bool = False,
+    location: List[float] = (0, 0, 0),
+) -> str:
+    """
+    Build a curve from path_points and apply a bevel profile — for neon
+    signs, brass pipes, electrical cables, decorative trim, railings,
+    handrails, hose runs.
+
+    Parameters:
+    - name: name for the new curve object
+    - path_points: list of [x, y, z] — at least 2 points
+    - profile: 'round' (cylindrical) | 'square' | 'flat' (extruded ribbon)
+               | name of an existing 2D curve object for custom profile
+    - thickness: bevel depth (radius for round, half-width for square,
+                 extrusion for flat)
+    - resolution: bevel smoothness (round/square only)
+    - closed: True closes the curve into a loop
+    - smooth: shade smooth (round profile only)
+    - convert_to_mesh: convert curve to mesh after creation
+    - location: object origin offset
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("curve_extrude_profile", {
+            "name": name,
+            "path_points": [list(p) for p in path_points],
+            "profile": profile,
+            "thickness": thickness,
+            "resolution": resolution,
+            "closed": closed,
+            "smooth": smooth,
+            "convert_to_mesh": convert_to_mesh,
+            "location": list(location),
+        })
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error in curve_extrude_profile: {str(e)}")
+        return f"Error in curve_extrude_profile: {str(e)}"
+
+
+@mcp.tool()
+def quick_export(
+    ctx: Context,
+    filepath: str,
+    objects: List[str] = None,
+    format: str = "auto",
+    pack_textures: bool = True,
+    apply_modifiers: bool = True,
+    selected_only: bool = False,
+    axis_forward: str = "-Z",
+    axis_up: str = "Y",
+    draco: bool = True,
+) -> str:
+    """
+    Export objects to GLB / FBX / OBJ / USD with sensible defaults for
+    contractor / 3D viewer / game engine handoff.
+
+    Format auto-detected from extension. Always packs textures for GLB by
+    default (otherwise clients open empty files — the #1 r/blender gotcha).
+
+    Parameters:
+    - filepath: output path; extension drives format if format='auto'
+    - objects: list of object names; None = whole scene
+    - format: 'auto' | 'glb' | 'gltf' | 'fbx' | 'obj' | 'usd' | 'usdz'
+    - pack_textures: GLB/USDZ embed textures into file; FBX copy alongside
+    - apply_modifiers: bake modifier stack at export
+    - selected_only: export only currently selected (overrides `objects`)
+    - axis_forward, axis_up: coordinate convention for FBX/OBJ
+    - draco: GLB Draco mesh compression
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("quick_export", {
+            "filepath": filepath,
+            "objects": objects,
+            "format": format,
+            "pack_textures": pack_textures,
+            "apply_modifiers": apply_modifiers,
+            "selected_only": selected_only,
+            "axis_forward": axis_forward,
+            "axis_up": axis_up,
+            "draco": draco,
+        })
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error in quick_export: {str(e)}")
+        return f"Error in quick_export: {str(e)}"
+
+
+@mcp.tool()
+def set_world_hdri_rotation(
+    ctx: Context,
+    z_rotation_deg: float = 0.0,
+    strength: float = None,
+) -> str:
+    """
+    Rotate the world environment HDRI around Z and/or set its strength.
+
+    Convenient for time-of-day adjustments without re-downloading: spin
+    the existing HDRI to put the sun behind/in-front-of the camera.
+
+    Parameters:
+    - z_rotation_deg: rotation around Z (0 = original orientation)
+    - strength: if provided, set Background node strength (typical 0.3-2.0)
+
+    Requires an HDRI to be already loaded (e.g. via download_polyhaven_asset).
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("set_world_hdri_rotation", {
+            "z_rotation_deg": z_rotation_deg,
+            "strength": strength,
+        })
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error in set_world_hdri_rotation: {str(e)}")
+        return f"Error in set_world_hdri_rotation: {str(e)}"
+
+
 @telemetry_tool("execute_blender_code")
 @mcp.tool()
 def execute_blender_code(ctx: Context, code: str) -> str:
