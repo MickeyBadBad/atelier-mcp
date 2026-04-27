@@ -621,6 +621,11 @@ class BlenderMCPServer:
         mesh. Returns min/max/median/mean gaps (positive = floating above,
         negative = intersecting). Uses evaluated geometry so Displace modifiers
         on the ground and shape keys / armatures on the object are honored.
+
+        If `object_name` resolves to an EMPTY (typical Sketchfab/GLB import
+        hierarchy with multi-mesh children), all descendant meshes are sampled
+        together — answers the question "is the imported model grounded?" in
+        one call instead of forcing the caller to find the right child.
         """
         from mathutils.bvhtree import BVHTree
 
@@ -631,20 +636,35 @@ class BlenderMCPServer:
             return {"error": f"Object '{object_name}' not found"}
         if ground is None:
             return {"error": f"Ground object '{ground_name}' not found"}
-        if obj.type != 'MESH':
-            return {"error": f"Object '{object_name}' is not a mesh (type={obj.type})"}
         if ground.type != 'MESH':
             return {"error": f"Ground '{ground_name}' is not a mesh (type={ground.type})"}
 
+        # Collect every mesh descendant (or just the object itself if it's a mesh)
+        def collect_meshes(o, acc):
+            if o.type == 'MESH' and o.data is not None:
+                acc.append(o)
+            for c in o.children:
+                collect_meshes(c, acc)
+        meshes = []
+        collect_meshes(obj, meshes)
+        if not meshes:
+            return {"error": f"Object '{object_name}' has no mesh geometry to test (type={obj.type}, no mesh descendants)"}
+
         depsgraph = bpy.context.evaluated_depsgraph_get()
-        obj_eval = obj.evaluated_get(depsgraph)
         ground_eval = ground.evaluated_get(depsgraph)
         bvh = BVHTree.FromObject(ground_eval, depsgraph)
 
-        obj_mw = obj_eval.matrix_world
-        world_verts = [obj_mw @ v.co for v in obj_eval.data.vertices]
+        # Aggregate world-space verts from all descendant meshes
+        world_verts = []
+        sampled_meshes = []
+        for m in meshes:
+            m_eval = m.evaluated_get(depsgraph)
+            mw = m_eval.matrix_world
+            verts = [mw @ v.co for v in m_eval.data.vertices]
+            world_verts.extend(verts)
+            sampled_meshes.append(m.name)
         if not world_verts:
-            return {"error": f"Object '{object_name}' has no vertices"}
+            return {"error": f"Object '{object_name}' (and its mesh descendants) have no vertices"}
 
         zmin = min(v.z for v in world_verts)
         slice_verts = [v for v in world_verts if v.z <= zmin + slice_height]
@@ -687,6 +707,7 @@ class BlenderMCPServer:
         return {
             "object_name": object_name,
             "ground_name": ground_name,
+            "sampled_meshes": sampled_meshes,
             "samples_tested": len(slice_verts),
             "samples_hit": len(gaps),
             "samples_missed": missed,
