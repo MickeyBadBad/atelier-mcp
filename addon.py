@@ -1845,13 +1845,17 @@ class BlenderMCPServer:
         """Check ambientCG connectivity (no key needed; just verify network)."""
         try:
             r = _resilient_get(
-                "https://ambientcg.com/api/v2/categories?limit=1",
+                "https://ambientcg.com/api/v2/full_json",
+                params={"type": "Material", "limit": 1},
                 max_retries=2, timeout=10,
             )
             data = r.json()
-            return {"enabled": True, "message": "ambientCG reachable",
-                    "categories_available": len(data.get("foundAssets", [])) > 0
-                                            or "foundAssets" in data}
+            total = data.get("numberOfResults", 0)
+            return {
+                "enabled": True,
+                "message": f"ambientCG reachable — {total} materials available",
+                "total_materials": total,
+            }
         except Exception as e:
             return {"enabled": False, "message": f"ambientCG unreachable: {e}"}
 
@@ -1870,7 +1874,7 @@ class BlenderMCPServer:
         params = {
             "type": asset_type,
             "limit": min(int(limit), 100),
-            "include": "tagsArray,downloadFolders,representativeImage",
+            "include": "downloadData,tagsArray",
         }
         if query:
             params["q"] = query
@@ -1889,25 +1893,32 @@ class BlenderMCPServer:
         out = []
         for a in assets:
             asset_id = a.get("assetId")
-            # Find the most common resolution buckets across downloadFolders
+            # Walk the actual structure:
+            # downloadFolders (dict) -> 'default' -> downloadFiletypeCategories ->
+            # 'zip' -> downloads (list of {attribute, fileName, size, downloadLink})
             res_set = set()
-            for folder in a.get("downloadFolders", []):
-                for asset_dl in folder.get("downloadFiletypeCategories", {}).get("zip", {}).get("downloads", []):
-                    attr = asset_dl.get("attribute") or asset_dl.get("title") or ""
-                    if "1K" in attr: res_set.add("1k")
-                    if "2K" in attr: res_set.add("2k")
-                    if "4K" in attr: res_set.add("4k")
-                    if "8K" in attr: res_set.add("8k")
+            df = a.get("downloadFolders") or {}
+            for folder_key, folder_val in df.items():
+                if not isinstance(folder_val, dict):
+                    continue
+                for cat_val in folder_val.get("downloadFiletypeCategories", {}).values():
+                    for dl in cat_val.get("downloads", []):
+                        attr = dl.get("attribute") or ""
+                        for tok in ("1K", "2K", "4K", "8K"):
+                            if tok in attr:
+                                res_set.add(tok.lower())
             out.append({
                 "asset_id": asset_id,
-                "category": a.get("category"),
-                "tags": a.get("tagsArray", [])[:6],
+                "display_name": a.get("displayName") or a.get("customDisplayName"),
+                "category": a.get("category") or a.get("displayCategory"),
+                "tags": (a.get("tags") or "").split(",")[:6] if isinstance(a.get("tags"), str) else (a.get("tagsArray") or [])[:6],
                 "resolutions": sorted(res_set) or ["unknown"],
-                "preview_url": (a.get("representativeImage") or {}).get("imageURL"),
+                "downloads_total": a.get("downloadCount", 0),
             })
         return {
             "query": query, "asset_type": asset_type, "category": category,
-            "count": len(out),
+            "total_results": data.get("numberOfResults", len(out)),
+            "returned": len(out),
             "assets": out,
         }
 
@@ -1927,7 +1938,7 @@ class BlenderMCPServer:
             params = {
                 "type": "Material",
                 "id": asset_id,
-                "include": "downloadFolders",
+                "include": "downloadData",
             }
             r = _resilient_get(
                 "https://ambientcg.com/api/v2/full_json",
@@ -1939,23 +1950,25 @@ class BlenderMCPServer:
                 return {"error": f"ambientCG asset '{asset_id}' not found"}
             target_asset = assets[0]
 
-            # Find the matching zip download URL
+            # Find the matching zip download URL.
+            # downloadFolders is a dict of folder_name -> {downloadFiletypeCategories ->
+            # {zip -> {downloads: [{attribute: '2K-JPG', downloadLink: '...'}, ...]}}}
+            target_attr = f"{resolution.upper()}-{file_format.upper()}"
             zip_url = None
-            res_token = resolution.upper().replace("K", "K-")  # "2K-JPG"
-            res_match = res_token + file_format.upper()
-            for folder in target_asset.get("downloadFolders", []):
-                for cat in folder.get("downloadFiletypeCategories", {}).values():
-                    for dl in cat.get("downloads", []):
-                        attr = (dl.get("attribute") or "").upper()
-                        if (resolution.upper() in attr
-                            and file_format.upper() in attr):
-                            zip_url = dl.get("downloadLink") or dl.get("rawLink")
+            df = target_asset.get("downloadFolders") or {}
+            for folder_key, folder_val in df.items():
+                if not isinstance(folder_val, dict):
+                    continue
+                for cat_val in folder_val.get("downloadFiletypeCategories", {}).values():
+                    for dl in cat_val.get("downloads", []):
+                        if (dl.get("attribute") or "").upper() == target_attr:
+                            zip_url = dl.get("downloadLink") or dl.get("fullDownloadPath")
                             if zip_url:
                                 break
                     if zip_url: break
                 if zip_url: break
             if not zip_url:
-                return {"error": f"No {resolution} {file_format} bundle for '{asset_id}'"}
+                return {"error": f"No {target_attr} bundle for '{asset_id}'"}
             if not zip_url.startswith("http"):
                 zip_url = "https://ambientcg.com" + zip_url
 
