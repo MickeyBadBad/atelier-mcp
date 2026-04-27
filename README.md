@@ -32,6 +32,7 @@ This fork ships those fixes plus design-workflow tools targeted at interior desi
 | **Usage tracking + budget caps (v1.10)** | **This fork** | **Session counters + per-call cost estimates + refuse-before-burn for Tripo3D / Meshy / OpenAI** |
 | **Smart routing for AI 3D (v1.10)** | **This fork** | **`generate_3d_smart(prompt, quality)` — picks the best of 4 providers based on quality target + configured services + remaining budget** |
 | **OpenAI image gen (v1.10)** | **This fork** | **DALL-E 3 + gpt-image-1 for textures, mood boards, image-to-3D refs (separate API billing — not covered by ChatGPT Plus)** |
+| **Codex CLI image gen (v1.10.1) — FREE for ChatGPT subscribers** | **This fork** | **`generate_image_codex` shells out to `codex exec` with `$imagegen` skill (model gpt-image-2). Counts against ChatGPT quota, not API billing.** |
 | API-credential persistence | [#235](https://github.com/ahujasid/blender-mcp/pull/235) | Sketchfab/Hyper3D tokens lost on Blender restart |
 | Visual grounding verification | [#230](https://github.com/ahujasid/blender-mcp/pull/230) | "Is this furniture actually on the floor?" |
 | Distinguish addon vs transport errors | [#228](https://github.com/ahujasid/blender-mcp/pull/228) | "Communication error" misdiagnosis |
@@ -279,7 +280,9 @@ That's it — your AI client should now show a hammer 🔨 icon with `mcp__blend
 | **`get_usage_report`** | 🆕 v1.10 — current session credits/$ spent + caps + live Tripo3D balance |
 | **`set_usage_budget`** | 🆕 v1.10 — adjust per-session cap for Tripo3D / Meshy / OpenAI |
 | **`reset_usage_counters`** | 🆕 v1.10 — start a fresh sprint without re-registering addon |
-| **`generate_image_openai`** | 🆕 v1.10 — DALL-E 3 / gpt-image-1 → PNG (refs, textures, mood boards) |
+| **`generate_image_codex`** | 🆕 v1.10.1 — **FREE** image gen via Codex CLI (gpt-image-2, ChatGPT quota) |
+| **`get_codex_status`** | 🆕 v1.10.1 — verify Codex CLI installed + logged in |
+| **`generate_image_openai`** | 🆕 v1.10 — DALL-E 3 / gpt-image-1 → PNG (PAID API path, faster) |
 | **`get_openai_status`** | 🆕 v1.10 — check OpenAI API key + connectivity |
 | `generate_tripo3d_text_to_3d` | v1.9 — text-to-3D via [Tripo3D](https://www.tripo3d.ai/) (sync, auto-polling, full PBR) |
 | **`generate_tripo3d_image_to_3d`** | 🆕 v1.9 — image-to-3D via Tripo3D (image_url) |

@@ -1633,6 +1633,89 @@ def generate_image_openai(
 
 
 @mcp.tool()
+def get_codex_status(ctx: Context) -> str:
+    """
+    Verify Codex CLI is installed and logged in via ChatGPT.
+
+    When logged in via ChatGPT, image generation via Codex's $imagegen
+    skill (model: gpt-image-2) counts against the user's ChatGPT
+    subscription quota — NOT against any OpenAI API billing. This is
+    the **preferred FREE path** for normal-volume design work.
+
+    For batching (hundreds of images), use generate_image_openai with
+    BLENDERMCP_OPENAI_API_KEY for paid API rates instead.
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("get_codex_status", {})
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error checking Codex status: {str(e)}")
+        return f"Error checking Codex status: {str(e)}"
+
+
+@mcp.tool()
+def generate_image_codex(
+    ctx: Context,
+    prompt: str,
+    save_to: str = None,
+    size: str = "1024x1024",
+    reference_images: List[str] = None,
+    style: str = None,
+    transparent: bool = False,
+    timeout_seconds: int = 300,
+) -> str:
+    """
+    Generate an image via Codex CLI's $imagegen skill (gpt-image-2).
+
+    **PREFERRED FREE PATH for users with a ChatGPT Plus/Pro subscription
+    + Codex CLI access.** Counts against ChatGPT subscription quota,
+    NOT against OpenAI API billing. About 3-5x faster quota burn than
+    text turns, but no extra dollars.
+
+    Slow (~1-2 min per image) but high quality. For high-volume batches
+    where speed matters more than ChatGPT quota, use the OpenAI API
+    path (`generate_image_openai`) instead.
+
+    Use cases for design workflows:
+    - Mood boards / concept art for client presentations
+    - Reference images that feed Tripo3D / Meshy image-to-3D
+    - Custom textures, signage mockups, hero shots
+
+    Parameters:
+    - prompt: text description (gpt-image-2 handles long detailed prompts)
+    - save_to: absolute PNG path. None = auto into
+               <blend-dir>/references/ai_generated/<timestamp>_<slug>.png
+    - size: '1024x1024' (default) | '1024x1536' | '1536x1024' |
+            '1024x1792' | '1792x1024'
+    - reference_images: list of paths Codex can edit / transform / extend
+                        (gpt-image-2 supports image-to-image)
+    - style: optional style hint ('photographic', 'illustration', 'minimal', etc.)
+    - transparent: True for transparent background (alpha channel)
+    - timeout_seconds: hard cap (default 300s = 5 min)
+
+    Returns saved path + bytes + elapsed + billing path note.
+
+    Requirements (one-time):
+    1. Install Codex CLI (https://github.com/openai/codex)
+    2. Run `codex login` and sign in via ChatGPT
+    3. Verify with `get_codex_status`
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("generate_image_codex", {
+            "prompt": prompt, "save_to": save_to, "size": size,
+            "reference_images": reference_images,
+            "style": style, "transparent": transparent,
+            "timeout_seconds": timeout_seconds,
+        })
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error generating Codex image: {str(e)}")
+        return f"Error generating Codex image: {str(e)}"
+
+
+@mcp.tool()
 def check_services(ctx: Context) -> str:
     """
     One-call health report for every integration: PolyHaven, Sketchfab,

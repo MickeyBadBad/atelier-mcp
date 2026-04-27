@@ -525,6 +525,8 @@ class BlenderMCPServer:
             "generate_3d_smart": self.generate_3d_smart,
             "get_openai_status": self.get_openai_status,
             "generate_image_openai": self.generate_image_openai,
+            "get_codex_status": self.get_codex_status,
+            "generate_image_codex": self.generate_image_codex,
         }
 
         # Add Polyhaven handlers only if enabled
@@ -3542,6 +3544,179 @@ class BlenderMCPServer:
             "dollars_spent_this_call": cost,
             "session_dollars_spent": _USAGE["openai_dollars_spent"],
             "session_dollar_cap": _BUDGETS["openai_dollars_max"],
+        }
+
+    # ---- Codex CLI image gen (FREE path via ChatGPT subscription) ---
+
+    def get_codex_status(self):
+        """Check if Codex CLI is installed and logged in via ChatGPT.
+
+        When logged in via ChatGPT, image generation counts against the
+        ChatGPT subscription's usage quota — NOT against any OpenAI API
+        billing. This is the free path most users should prefer for
+        normal-volume design work (a few dozen images per day).
+
+        For batching (hundreds of images), the OpenAI API path is still
+        recommended (set BLENDERMCP_OPENAI_API_KEY).
+        """
+        import shutil as _sh
+        codex_path = _sh.which("codex")
+        if not codex_path:
+            return {"enabled": False,
+                    "message": "Codex CLI not found in PATH. Install it: "
+                               "see https://github.com/openai/codex (or use the "
+                               "Codex desktop app, which bundles the CLI).",
+                    "billing_path": "n/a"}
+        try:
+            import subprocess as _sp
+            r = _sp.run([codex_path, "login", "status"],
+                        capture_output=True, text=True, timeout=10)
+            if "Logged in" in r.stdout:
+                # Snip auth method from "Logged in using ChatGPT" / "API key"
+                method = r.stdout.strip().split("Logged in using")[-1].strip() if "using" in r.stdout else "unknown"
+                billing = ("ChatGPT subscription quota (free for normal use)"
+                           if "ChatGPT" in method
+                           else "OpenAI API key (separate billing)")
+                return {"enabled": True,
+                        "codex_path": codex_path,
+                        "auth_method": method,
+                        "billing_path": billing,
+                        "message": f"Codex CLI ready. Logged in via {method}."}
+            else:
+                return {"enabled": False,
+                        "codex_path": codex_path,
+                        "message": "Codex CLI installed but not logged in. "
+                                   "Run: codex login"}
+        except Exception as e:
+            return {"enabled": False,
+                    "codex_path": codex_path,
+                    "message": f"Codex status check failed: {e}"}
+
+    def generate_image_codex(self, prompt, save_to=None, size="1024x1024",
+                             reference_images=None, style=None,
+                             transparent=False, timeout_seconds=300):
+        """Generate an image via Codex CLI's $imagegen skill (gpt-image-2).
+
+        Uses your ChatGPT subscription quota — NO separate API billing.
+        Slow (~1-2 min per image) but high quality.
+
+        Requirements:
+        - Codex CLI installed (`codex --version`)
+        - Logged in via ChatGPT (`codex login status` shows ChatGPT)
+
+        Parameters:
+        - prompt: text description of what to generate
+        - save_to: absolute PNG path. None = auto into
+                   <blend-dir>/references/ai_generated/<timestamp>_<slug>.png
+        - size: '1024x1024' (default) | '1024x1536' | '1536x1024' | '1024x1792' | '1792x1024'
+        - reference_images: list of paths to reference images Codex can
+                           edit/transform/extend (gpt-image-2 supports this)
+        - style: optional style hint ('photographic', 'illustration', etc.)
+        - transparent: True asks for a transparent background
+        - timeout_seconds: hard cap on Codex run (default 5 min)
+
+        Returns the saved path + tokens used (if surfaced) + elapsed.
+        """
+        import shutil as _sh
+        import subprocess as _sp
+
+        codex_path = _sh.which("codex")
+        if not codex_path:
+            return {"error": "Codex CLI not found. Install from https://github.com/openai/codex"}
+
+        # Resolve save_to
+        if save_to is None:
+            ts = time.strftime("%Y%m%d_%H%M%S")
+            slug = "".join(c if c.isalnum() else "_" for c in prompt[:40]).strip("_")
+            base = (os.path.dirname(bpy.data.filepath)
+                    if bpy.data.filepath else os.path.expanduser("~"))
+            ai_dir = os.path.join(base, "references", "ai_generated")
+            os.makedirs(ai_dir, exist_ok=True)
+            save_to = os.path.join(ai_dir, f"{ts}_{slug}.png")
+        os.makedirs(os.path.dirname(os.path.abspath(save_to)) or ".", exist_ok=True)
+
+        # Build the full Codex prompt — explicit $imagegen skill + path
+        prompt_parts = [f"$imagegen Generate an image: {prompt}"]
+        prompt_parts.append(f"Size: {size}")
+        if style:
+            prompt_parts.append(f"Style: {style}")
+        if transparent:
+            prompt_parts.append("Background: transparent (alpha channel)")
+        if reference_images:
+            ref_list = ", ".join(str(p) for p in reference_images)
+            prompt_parts.append(f"Use these as reference inputs: {ref_list}")
+        prompt_parts.append(f"Save the final PNG file as: {save_to}")
+        full_prompt = ". ".join(prompt_parts)
+
+        # Use a temp cwd so Codex doesn't pollute our project
+        cwd = tempfile.mkdtemp(prefix="blendermcp_codex_")
+        last_msg_path = os.path.join(cwd, "last.txt")
+
+        cmd = [
+            codex_path, "exec",
+            "--skip-git-repo-check",
+            "--full-auto",
+            "--output-last-message", last_msg_path,
+            full_prompt,
+        ]
+
+        start = time.time()
+        try:
+            proc = _sp.run(cmd, cwd=cwd, capture_output=True, text=True,
+                           timeout=int(timeout_seconds))
+        except _sp.TimeoutExpired:
+            return {"error": f"Codex CLI timed out after {timeout_seconds}s",
+                    "save_to": save_to}
+        except Exception as e:
+            return {"error": f"Codex CLI failed to run: {e}"}
+        elapsed = time.time() - start
+
+        # Verify the file landed where we asked
+        if not os.path.exists(save_to):
+            # Fallback: scan ~/.codex/generated_images for newest file post-start
+            codex_home = os.environ.get("CODEX_HOME", os.path.expanduser("~/.codex"))
+            gen_dir = os.path.join(codex_home, "generated_images")
+            newest = None
+            if os.path.exists(gen_dir):
+                all_pngs = []
+                for root, _, files in os.walk(gen_dir):
+                    for fn in files:
+                        if fn.endswith(".png"):
+                            full = os.path.join(root, fn)
+                            if os.path.getmtime(full) > start:
+                                all_pngs.append(full)
+                if all_pngs:
+                    all_pngs.sort(key=os.path.getmtime, reverse=True)
+                    newest = all_pngs[0]
+            if newest:
+                shutil.copy(newest, save_to)
+            else:
+                return {"error": "Codex didn't produce a PNG at the expected path",
+                        "save_to": save_to,
+                        "stdout_tail": (proc.stdout or "")[-800:],
+                        "stderr_tail": (proc.stderr or "")[-400:],
+                        "elapsed_seconds": round(elapsed, 1)}
+
+        # Extract tokens from stdout if present
+        tokens_used = None
+        for line in (proc.stdout or "").splitlines():
+            if line.strip().startswith("tokens used"):
+                continue   # next line has the number, but format varies
+            if line.strip().isdigit() and 1000 < int(line.strip()) < 1000000:
+                tokens_used = int(line.strip())
+
+        # Cleanup temp cwd
+        with suppress(Exception):
+            shutil.rmtree(cwd)
+
+        return {
+            "save_to": os.path.abspath(save_to),
+            "size_bytes": os.path.getsize(save_to),
+            "elapsed_seconds": round(elapsed, 1),
+            "tokens_used": tokens_used,
+            "via": "codex_cli",
+            "billing": "ChatGPT subscription quota (no separate API charge)",
+            "model": "gpt-image-2",
         }
 
     def execute_code(self, code):

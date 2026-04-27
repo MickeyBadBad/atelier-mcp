@@ -6,6 +6,37 @@ This is an actively maintained community fork of [ahujasid/blender-mcp](https://
 
 ---
 
+## [1.10.1+fork.1] — 2026-04-28
+
+Important capability discovery — Codex CLI's `$imagegen` skill (model `gpt-image-2`) **counts against ChatGPT subscription quota, not separate OpenAI API billing**. Wired up as a parallel path to `generate_image_openai` and now the **preferred default** for users with a ChatGPT Plus/Pro subscription + Codex CLI.
+
+### Added
+
+- **`get_codex_status`** — verify Codex CLI is installed AND logged in via ChatGPT (vs API key). Reports the billing path the user will hit.
+- **`generate_image_codex(prompt, save_to, size, reference_images, style, transparent, timeout_seconds)`** — shells out to `codex exec --skip-git-repo-check --full-auto` with a `$imagegen` prompt. Auto-saves to `references/ai_generated/<timestamp>_<slug>.png` if no path given. Falls back to scanning `~/.codex/generated_images/` if Codex's output landed somewhere unexpected.
+
+### Verified end-to-end
+
+```bash
+codex exec --skip-git-repo-check --full-auto \
+  '$imagegen brass speakeasy door knocker, dark background, 1024x1024, save to /tmp/test.png'
+```
+
+→ 1m27s, 43k tokens (ChatGPT quota), 1024×1024 PNG, gpt-image-2 quality. **Zero API charges.**
+
+### Decision tree for image gen now
+
+```
+Need an image?
+├── Have ChatGPT Plus/Pro + Codex CLI? → generate_image_codex   (FREE, slow)
+├── Have OpenAI API credits + need speed? → generate_image_openai (PAID, fast)
+└── Neither? → Get Codex CLI; ChatGPT subscription is most cost-effective
+```
+
+For batches >50 images: use `generate_image_openai` even if you have ChatGPT — cheaper than burning subscription quota.
+
+---
+
 ## [1.10.0+fork.1] — 2026-04-28
 
 Three orthogonal improvements driven by real-use feedback: stop bleeding credits, stop guessing which AI provider to call, and pull DALL-E 3 / gpt-image-1 into the toolkit for textures + image-to-3D pipelines. Also closes the v1.9 hole where ambientCG had a working integration but no panel checkbox.
