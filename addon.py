@@ -36,6 +36,151 @@ RODIN_FREE_TRIAL_KEY = "k9TcfFoEhNd9cCPP2guHAHHHkctZHIRhZDywZ1euGUXwihbYLpOjQhof
 REQ_HEADERS = requests.utils.default_headers()
 REQ_HEADERS.update({"User-Agent": "blender-mcp"})
 
+
+# --------------------------------------------------------------------------
+# Resilient download helpers — wrap requests.get with exponential backoff +
+# transparent resume for partial downloads. Sketchfab / PolyHaven CDNs
+# regularly drop large transfers mid-stream (urllib3.IncompleteRead), so any
+# call site that downloads more than ~100KB should go through these.
+# --------------------------------------------------------------------------
+
+def _resilient_retryable_excs():
+    """Build the tuple of exception classes worth retrying on lazily so missing
+    optional packages don't break import."""
+    excs = []
+    try:
+        from requests.exceptions import (
+            ChunkedEncodingError, ConnectionError as ReqConnErr, Timeout,
+        )
+        excs += [ChunkedEncodingError, ReqConnErr, Timeout]
+    except Exception:
+        pass
+    try:
+        from urllib3.exceptions import IncompleteRead, ProtocolError
+        excs += [IncompleteRead, ProtocolError]
+    except Exception:
+        pass
+    return tuple(excs) or (Exception,)
+
+
+def _resilient_get(url, max_retries=3, backoff_base=1.7, timeout=30, **kwargs):
+    """Wrap requests.get() with retry + exponential backoff for transient
+    network errors. Returns the final Response, or raises after max_retries.
+
+    Suitable for *small* responses (JSON, HTML, metadata) where loading
+    .content into memory in one shot is fine. For large file downloads use
+    _resilient_download_to_file() instead — it streams + resumes.
+    """
+    retryable = _resilient_retryable_excs()
+    last_err = None
+    kwargs.setdefault("timeout", timeout)
+    for attempt in range(1, max_retries + 1):
+        try:
+            response = requests.get(url, **kwargs)
+            # Treat 5xx as retryable; 4xx is a client error, fail fast
+            if response.status_code >= 500:
+                raise requests.exceptions.HTTPError(
+                    f"{response.status_code} {response.reason}", response=response
+                )
+            # Reading .content can also IncompleteRead — sniff once
+            try:
+                _ = response.content
+            except retryable as e:
+                raise e
+            return response
+        except retryable as e:
+            last_err = e
+            if attempt < max_retries:
+                wait = backoff_base ** attempt
+                print(f"[blender-mcp] _resilient_get retry {attempt}/{max_retries} "
+                      f"for {url[:80]}{'...' if len(url) > 80 else ''}: "
+                      f"{type(e).__name__}: {e}. Waiting {wait:.1f}s")
+                time.sleep(wait)
+                continue
+        except requests.exceptions.HTTPError as e:
+            # 5xx wrapped above ends up here; 4xx falls through to raise
+            if 500 <= getattr(e.response, "status_code", 0) < 600 and attempt < max_retries:
+                last_err = e
+                wait = backoff_base ** attempt
+                print(f"[blender-mcp] _resilient_get retry {attempt}/{max_retries} "
+                      f"for {url[:80]} (HTTP {e.response.status_code}). "
+                      f"Waiting {wait:.1f}s")
+                time.sleep(wait)
+                continue
+            raise
+    raise last_err
+
+
+def _resilient_download_to_file(url, dest_path, max_retries=4, backoff_base=1.7,
+                                timeout=120, chunk_size=1024 * 1024,
+                                headers=None):
+    """Stream-download a URL to dest_path with retry + Range-based resume.
+
+    On retry, sends `Range: bytes=N-` so the server only resends the missing
+    tail. Falls back to a fresh download if the server doesn't honor Range
+    (200 instead of 206 means full reset). Returns the bytes written, or
+    raises after max_retries.
+    """
+    retryable = _resilient_retryable_excs()
+    request_headers = dict(headers) if headers else dict(REQ_HEADERS)
+    last_err = None
+    bytes_written = 0
+    # Ensure parent dir exists
+    parent = os.path.dirname(dest_path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+
+    for attempt in range(1, max_retries + 1):
+        attempt_headers = dict(request_headers)
+        if bytes_written > 0:
+            attempt_headers["Range"] = f"bytes={bytes_written}-"
+            mode = "ab"
+        else:
+            mode = "wb"
+        try:
+            response = requests.get(url, stream=True, timeout=timeout,
+                                    headers=attempt_headers)
+            # If we asked for a Range and server returned 200 (not 206), it
+            # ignored Range — start over to keep the file consistent.
+            if mode == "ab" and response.status_code == 200:
+                bytes_written = 0
+                with open(dest_path, "wb") as _:
+                    pass
+                mode = "wb"
+            elif response.status_code not in (200, 206):
+                raise requests.exceptions.HTTPError(
+                    f"{response.status_code} {response.reason}", response=response
+                )
+
+            with open(dest_path, mode) as f:
+                for chunk in response.iter_content(chunk_size=chunk_size):
+                    if chunk:
+                        f.write(chunk)
+                        bytes_written += len(chunk)
+            # If we got here without exception, transfer is complete
+            return bytes_written
+        except retryable as e:
+            last_err = e
+            if attempt < max_retries:
+                wait = backoff_base ** attempt
+                print(f"[blender-mcp] download retry {attempt}/{max_retries} "
+                      f"for {url[:80]} ({bytes_written} bytes so far): "
+                      f"{type(e).__name__}: {e}. Waiting {wait:.1f}s")
+                time.sleep(wait)
+                continue
+        except requests.exceptions.HTTPError as e:
+            sc = getattr(e.response, "status_code", 0)
+            if 500 <= sc < 600 and attempt < max_retries:
+                last_err = e
+                wait = backoff_base ** attempt
+                print(f"[blender-mcp] download retry {attempt}/{max_retries} "
+                      f"for {url[:80]} (HTTP {sc}). Waiting {wait:.1f}s")
+                time.sleep(wait)
+                continue
+            raise
+    raise last_err
+
+
 def get_blendermcp_addon_preferences(context=None):
     """Get add-on preferences object if available."""
     if context is None:
@@ -1061,14 +1206,12 @@ class BlenderMCPServer:
 
                     # For HDRIs, we need to save to a temporary file first
                     # since Blender can't properly load HDR data directly from memory
-                    with tempfile.NamedTemporaryFile(suffix=f".{file_format}", delete=False) as tmp_file:
-                        # Download the file
-                        response = requests.get(file_url, headers=REQ_HEADERS)
-                        if response.status_code != 200:
-                            return {"error": f"Failed to download HDRI: {response.status_code}"}
-
-                        tmp_file.write(response.content)
-                        tmp_path = tmp_file.name
+                    tmp_fd, tmp_path = tempfile.mkstemp(suffix=f".{file_format}")
+                    os.close(tmp_fd)
+                    try:
+                        _resilient_download_to_file(file_url, tmp_path)
+                    except Exception as e:
+                        return {"error": f"Failed to download HDRI after retries: {e}"}
 
                     try:
                         # Create a new world if none exists
@@ -1157,12 +1300,16 @@ class BlenderMCPServer:
                                 file_url = file_info["url"]
 
                                 # Use NamedTemporaryFile like we do for HDRIs
-                                with tempfile.NamedTemporaryFile(suffix=f".{file_format}", delete=False) as tmp_file:
-                                    # Download the file
-                                    response = requests.get(file_url, headers=REQ_HEADERS)
-                                    if response.status_code == 200:
-                                        tmp_file.write(response.content)
-                                        tmp_path = tmp_file.name
+                                tmp_fd, tmp_path = tempfile.mkstemp(suffix=f".{file_format}")
+                                os.close(tmp_fd)
+                                try:
+                                    _resilient_download_to_file(file_url, tmp_path)
+                                    download_ok = True
+                                except Exception as e:
+                                    print(f"[blender-mcp] Texture {map_type} download failed: {e}")
+                                    download_ok = False
+                                if download_ok:
+                                    if True:
 
                                         # Load image from temporary file
                                         image = bpy.data.images.load(tmp_path)
@@ -1296,12 +1443,10 @@ class BlenderMCPServer:
                         main_file_name = file_url.split("/")[-1]
                         main_file_path = os.path.join(temp_dir, main_file_name)
 
-                        response = requests.get(file_url, headers=REQ_HEADERS)
-                        if response.status_code != 200:
-                            return {"error": f"Failed to download model: {response.status_code}"}
-
-                        with open(main_file_path, "wb") as f:
-                            f.write(response.content)
+                        try:
+                            _resilient_download_to_file(file_url, main_file_path)
+                        except Exception as e:
+                            return {"error": f"Failed to download model after retries: {e}"}
 
                         # Check for included files and download them
                         if "include" in file_info and file_info["include"]:
@@ -1313,13 +1458,11 @@ class BlenderMCPServer:
                                 include_file_path = os.path.join(temp_dir, include_path)
                                 os.makedirs(os.path.dirname(include_file_path), exist_ok=True)
 
-                                # Download the included file
-                                include_response = requests.get(include_url, headers=REQ_HEADERS)
-                                if include_response.status_code == 200:
-                                    with open(include_file_path, "wb") as f:
-                                        f.write(include_response.content)
-                                else:
-                                    print(f"Failed to download included file: {include_path}")
+                                # Download the included file (best-effort with retry)
+                                try:
+                                    _resilient_download_to_file(include_url, include_file_path)
+                                except Exception as e:
+                                    print(f"Failed to download included file {include_path}: {e}")
 
                         # Import the model into Blender
                         if file_format == "gltf" or file_format == "glb":
@@ -1947,22 +2090,12 @@ class BlenderMCPServer:
                     suffix=".glb",
                 )
 
+                temp_file.close()
                 try:
-                    # Download the content
-                    response = requests.get(i["url"], stream=True)
-                    response.raise_for_status()  # Raise an exception for HTTP errors
-
-                    # Write the content to the temporary file
-                    for chunk in response.iter_content(chunk_size=8192):
-                        temp_file.write(chunk)
-
-                    # Close the file
-                    temp_file.close()
-
+                    _resilient_download_to_file(i["url"], temp_file.name)
                 except Exception as e:
-                    # Clean up the file if there's an error
-                    temp_file.close()
-                    os.unlink(temp_file.name)
+                    with suppress(Exception):
+                        os.unlink(temp_file.name)
                     return {"succeed": False, "error": str(e)}
 
                 break
@@ -2313,18 +2446,20 @@ class BlenderMCPServer:
             if not download_url:
                 return {"error": "No download URL available for this model. Make sure the model is downloadable and you have access."}
 
-            # Download the model (already has timeout)
-            model_response = requests.get(download_url, timeout=60)  # 60 second timeout
-
-            if model_response.status_code != 200:
-                return {"error": f"Model download failed with status code {model_response.status_code}"}
-
-            # Save to temporary file
+            # Save to temporary file (streamed + retried; Sketchfab CDN
+            # commonly drops large transfers mid-stream).
             temp_dir = tempfile.mkdtemp()
             zip_file_path = os.path.join(temp_dir, f"{uid}.zip")
-
-            with open(zip_file_path, "wb") as f:
-                f.write(model_response.content)
+            try:
+                bytes_written = _resilient_download_to_file(
+                    download_url, zip_file_path,
+                    max_retries=4, timeout=180,
+                )
+                print(f"[blender-mcp] Sketchfab model {uid}: downloaded {bytes_written} bytes")
+            except Exception as e:
+                with suppress(Exception):
+                    shutil.rmtree(temp_dir)
+                return {"error": f"Model download failed after retries: {e}"}
 
             # Extract the zip file with enhanced security
             with zipfile.ZipFile(zip_file_path, 'r') as zip_ref:
@@ -2844,12 +2979,8 @@ class BlenderMCPServer:
         mtl_file_path = osp.join(temp_dir, "model.mtl")
 
         try:
-            # Download ZIP file
-            zip_response = requests.get(zip_file_url, stream=True)
-            zip_response.raise_for_status()
-            with open(zip_file_path, "wb") as f:
-                for chunk in zip_response.iter_content(chunk_size=8192):
-                    f.write(chunk)
+            # Download ZIP file (streamed + retried)
+            _resilient_download_to_file(zip_file_url, zip_file_path)
 
             # Unzip the ZIP
             with zipfile.ZipFile(zip_file_path, "r") as zip_ref:
