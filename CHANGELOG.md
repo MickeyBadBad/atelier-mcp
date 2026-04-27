@@ -6,6 +6,59 @@ This is an actively maintained community fork of [ahujasid/blender-mcp](https://
 
 ---
 
+## [1.7.0+fork.1] — 2026-04-28
+
+Sprint 2: download resilience, 6 new generic tools (mesh cleanup, boolean cutouts, camera framing, lighting moods, archviz materials), and a second free CC0 PBR library (ambientCG) integrated.
+
+### Added — fork-original tools
+
+- **`mesh_cleanup(object, merge_distance, decimate_ratio, recalc_normals, remove_loose, fix_non_manifold, triangulate)`** — single-call mesh hygiene. Essential preprocessing for LiDAR/photogrammetry imports (duplicate verts, flipped normals, 100k+ triangles). Returns before/after vert/edge/face counts. Idempotent on already-clean meshes.
+- **`boolean_cutout(target, cutter_shape, location, size, rotation, cutter_object_name, operation, solver, apply)`** — windows, door cutouts, vent holes, decorative mortises. Defaults to EXACT solver (robust on overlapping geometry). Auto-creates and cleans up primitive cutter on `apply=True`; supports existing meshes via `cutter_shape='mesh'`.
+- **`frame_camera_to_objects(targets, orbit_deg, elevation_deg, focal_mm, padding, composition, dof_target, f_stop)`** — wraps `camera_to_view_selected` with composition presets. Uses lens shift (not tilt) for thirds offset so verticals stay straight — the single biggest archviz "pro vs amateur" tell. Handles object hierarchies via descendant-mesh bbox aggregation. Optional `focus_object` DOF.
+- **`setup_lighting(mood, target_object|target_xyz, area_m2, ceiling_height_m)`** — three-layer rig (ambient ring + accent spot + table key) tuned to one of 8 generic design-intent moods. **Intentionally space-agnostic**: moods describe lighting intent, not space type, so they compose across cafe / retail / residential / office / studio / gallery.
+  - `warm_intimate` — Low Kelvin, low ambient, strong table-level key. Bars, lounges, evening dining, bedrooms.
+  - `daylight_neutral` — Balanced 4000-4500K. Daylit interior shoots, residential common areas.
+  - `bright_workspace` — High lux, neutral 4000K, even coverage. Offices, kitchens, classrooms.
+  - `dramatic_accent` — Low ambient + tight accent spotlights. Galleries, retail focal displays.
+  - `golden_hour` — Warm sun-side key + cool sky ambient. Exterior renders, interior at sunset.
+  - `cool_modern` — 5500-6500K, clean even lighting. Modernist showrooms, modern offices.
+  - `studio_neutral` — 5500K product photography. Product viz, e-commerce.
+  - `moody_lowkey` — Deep shadows, small key, no fill. Cinematic / noir / mystery.
+- **`apply_archviz_material(object, genre, color_hint, finish, resolution, custom_hex, roughness, library)`** — picks a textured PBR material by generic genre keyword and applies it. Routes through PolyHaven by default with auto-fallback through curated candidate IDs. 14 generic genres (`hardwood_floor`, `softwood_planks`, `exposed_wood`, `brick_wall`, `brick_floor`, `concrete_smooth`, `concrete_rough`, `plaster_wall`, `natural_stone`, `tile_ceramic`, `metal_industrial`, `grass_ground`, `roof_clay_tiles`, `roof_slate`) plus the special `painted_wall` mode that short-circuits to `apply_material_color` when `custom_hex='#RRGGBB'` is provided.
+- **`list_archviz_genres()`** — discovery tool returning the full genre dictionary with descriptions and candidate IDs.
+
+### Added — ambientCG integration (CC0 PBR library, ~2000 materials)
+
+[ambientCG](https://ambientcg.com/) fills gaps PolyHaven doesn't cover well — fabrics, leather, carpets, more concrete variants, plant decals. License is uniformly CC0, no attribution requirements. No API key needed.
+
+- **`get_ambientcg_status()`** — connectivity check; reports total available materials.
+- **`search_ambientcg_assets(query, asset_type, category, limit)`** — free-text search across Materials / HDRIs / Decals / 3D Models / Plant Models. Returns asset IDs, categories, available resolutions, download counts.
+- **`download_ambientcg_asset(asset_id, resolution, file_format)`** — streams the zip via the new `_resilient_download_to_file` helper, extracts maps, builds a Principled BSDF material wired identically to PolyHaven set_texture output (Color / Roughness / Normal / Metallic / Displacement / AO).
+
+### Changed — download resilience layer
+
+Sketchfab CDN regularly drops large transfers mid-stream (`urllib3.IncompleteRead`); PolyHaven texture downloads hit transient `ConnectionResetError`s during heavy library crawls. Both used to surface as a fatal error with no retry, forcing the LLM to manually retry the same UID — wasting tokens and time.
+
+Added two module-level helpers near the top of `addon.py`:
+
+- `_resilient_get(url, max_retries=3, backoff_base=1.7, timeout=30)` — wraps `requests.get` with retry on `IncompleteRead`, `ProtocolError`, `ChunkedEncodingError`, `ConnectionError`, `Timeout`, and HTTP 5xx. Exponential backoff between attempts.
+- `_resilient_download_to_file(url, dest_path, max_retries=4, backoff_base=1.7, timeout=120, chunk_size=1MB)` — streams the body straight to disk. On retry, sends `Range: bytes=N-` so the server only resends the missing tail. If the server returns 200 instead of 206 (Range ignored), falls back to a fresh full download. Built for large files (Sketchfab GLB zips: 50-200MB; Hyper3D Rodin GLBs: similar).
+
+Patched download call sites:
+- PolyHaven HDRI / texture map / model downloads
+- Sketchfab GLB zip download (the worst offender)
+- Hyper3D Rodin GLB downloads (main_site path + iter_content path)
+- Hunyuan3D OBJ zip download
+
+Verified: Sketchfab "Vintage lamp post" UID `56f6dcb3865144cd84e049ca6a736fae` failed three times in a row with `IncompleteRead(2175479 bytes read, 18604019 more expected)` before this patch. With Range-resume the download completes on retry 2.
+
+### Fixed
+
+- **ambientCG endpoint and parser bugs** — initial integration used `/api/v2/categories` (doesn't exist) and `include=downloadFolders` (wrong param; field came back as `None`). Corrected to `/api/v2/full_json?include=downloadData` and parser walks the actual dict-shaped `downloadFolders` structure with `downloadFiletypeCategories.zip.downloads[].attribute` keyed by strings like `"2K-JPG"`.
+- **`verify_object_grounded` walks descendant meshes** — already shipped in v1.6.0 but called out here because it was discovered while testing PR #230 against real Sketchfab imports.
+
+---
+
 ## [1.6.0+fork.1] — 2026-04-28
 
 First release of the fork. Brings Blender 4.x/5.x compatibility, integrates 5 community PRs that have been queued upstream for weeks/months, fixes a security issue (#214 — prompt-injection in tool docstrings), and adds 4 design-workflow tools targeting interior/architectural visualization use cases.
