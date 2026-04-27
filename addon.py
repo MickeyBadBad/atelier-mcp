@@ -278,6 +278,13 @@ class BlenderMCPServer:
             "BLENDERMCP_OPENAI_API_KEY",
         )
 
+    def _get_openai_base_url(self):
+        return self._get_config_value(
+            "blendermcp_openai_base_url",
+            "openai_base_url",
+            "BLENDERMCP_OPENAI_BASE_URL",
+        ) or "https://api.openai.com/v1"
+
     def _get_hyper3d_api_key(self):
         # Let the free-trial button temporarily override persistent keys
         # without overwriting user-saved private keys.
@@ -3745,9 +3752,10 @@ class BlenderMCPServer:
                     "https://platform.openai.com/api-keys (NOTE: this is "
                     "separate billing from ChatGPT Plus/Pro). Set in Blender "
                     "prefs or BLENDERMCP_OPENAI_API_KEY env var."}
+        base = self._get_openai_base_url().rstrip("/")
         try:
             # Cheap auth check — list models endpoint
-            r = requests.get(f"{self.OPENAI_BASE}/models",
+            r = requests.get(f"{base}/models",
                              headers={"Authorization": f"Bearer {key}"},
                              timeout=10)
             if r.status_code == 401:
@@ -3763,8 +3771,15 @@ class BlenderMCPServer:
     def generate_image_openai(self, prompt, model="dall-e-3",
                               size="1024x1024", quality="standard",
                               save_to=None, n=1, style=None):
-        """Generate an image via OpenAI's image-generation API and save it
-        to disk (default: <project_root>/references/ai_generated/).
+        """Generate an image via an OpenAI-compatible image-generation API
+        and save it to disk (default: <project_root>/references/ai_generated/).
+
+        The base URL is configurable via the OpenAI base URL preference (or
+        BLENDERMCP_OPENAI_BASE_URL env var). Defaults to
+        https://api.openai.com/v1, but any OpenAI-compatible endpoint
+        works — Comfly (https://ai.comfly.chat/v1), OpenRouter
+        (https://openrouter.ai/api/v1), self-hosted vLLM, etc. The
+        path suffix /images/generations is consistent across providers.
 
         Use cases:
         - Mood-board / concept art for design briefs
@@ -3773,7 +3788,10 @@ class BlenderMCPServer:
 
         Parameters:
         - prompt: text description (DALL-E 3 max ~4000 chars)
-        - model: 'dall-e-3' (older, $0.04+) or 'gpt-image-1' (newer, varies)
+        - model: 'dall-e-3' (older, $0.04+) or 'gpt-image-1' (newer, varies).
+                 Comfly/OpenRouter may expose proxy aliases like
+                 'gpt-image-2' or 'gemini-3.1-flash-image-preview-2k' —
+                 those names are passed through verbatim.
         - size: dall-e-3: '1024x1024' / '1024x1792' / '1792x1024'
                 gpt-image-1: '1024x1024' / '1024x1536' / '1536x1024'
         - quality: dall-e-3: 'standard' or 'hd'
@@ -3786,8 +3804,10 @@ class BlenderMCPServer:
         Returns saved path + revised prompt (DALL-E 3 always rewrites your
         prompt internally) + dollars spent.
 
-        IMPORTANT: ChatGPT Plus subscription does NOT cover this. API
-        credits are billed separately on platform.openai.com.
+        IMPORTANT: ChatGPT Plus subscription does NOT cover api.openai.com.
+        For OpenAI-direct, API credits are billed separately on
+        platform.openai.com. For Comfly/OpenRouter/vLLM, billing follows
+        that provider's rules.
         """
         key = self._get_openai_api_key()
         if not key:
@@ -3818,9 +3838,10 @@ class BlenderMCPServer:
         else:
             return {"error": f"Unsupported model '{model}'. Use 'dall-e-3' or 'gpt-image-1'."}
 
+        base = self._get_openai_base_url().rstrip("/")
         try:
             r = requests.post(
-                f"{self.OPENAI_BASE}/images/generations",
+                f"{base}/images/generations",
                 headers={"Authorization": f"Bearer {key}",
                          "Content-Type": "application/json"},
                 json=body, timeout=120,
@@ -6046,6 +6067,7 @@ def _persist_credentials(self, context):
         "sketchfab_api_key", "hyper3d_api_key",
         "hunyuan3d_secret_id", "hunyuan3d_secret_key", "hunyuan3d_api_url",
         "tripo3d_api_key", "meshy_api_key", "openai_api_key",
+        "openai_base_url",
     )
     snapshot = {f: getattr(self, f, "") for f in cred_fields}
     # Sidecar JSON write (atomic via tmp + rename)
@@ -6226,6 +6248,13 @@ class BLENDERMCP_AddonPreferences(bpy.types.AddonPreferences):
         default="",
         update=_persist_credentials,
     )
+    openai_base_url: bpy.props.StringProperty(
+        name="OpenAI base URL",
+        description="OpenAI-compatible API endpoint. Default: https://api.openai.com/v1. "
+                    "Use ai.comfly.chat/v1 for Comfly, openrouter.ai/api/v1 for OpenRouter, etc.",
+        default="https://api.openai.com/v1",
+        update=_persist_credentials,
+    )
 
     def draw(self, context):
         layout = self.layout
@@ -6263,6 +6292,7 @@ class BLENDERMCP_AddonPreferences(bpy.types.AddonPreferences):
         cred_box.prop(self, "tripo3d_api_key", text="Tripo3D API Key")
         cred_box.prop(self, "meshy_api_key", text="Meshy.ai API Key")
         cred_box.prop(self, "openai_api_key", text="OpenAI API Key")
+        cred_box.prop(self, "openai_base_url", text="OpenAI Base URL")
 
 # Blender UI Panel
 class BLENDERMCP_PT_Panel(bpy.types.Panel):
@@ -6388,10 +6418,22 @@ class BLENDERMCP_PT_Panel(bpy.types.Panel):
                      get_key_url="https://platform.openai.com/api-keys")
         if scene.blendermcp_use_openai:
             sb = ai_box.box()
+            sb.prop(scene, "blendermcp_openai_base_url", text="Base URL")
             if prefs:
                 sb.prop(prefs, "openai_api_key", text="API Key")
             else:
                 sb.prop(scene, "blendermcp_openai_api_key", text="API Key")
+            # Provider preset quick-set buttons
+            op_row = sb.row(align=True)
+            op_row.label(text="Preset:")
+            for label, url in (
+                ("Official",   "https://api.openai.com/v1"),
+                ("Comfly",     "https://ai.comfly.chat/v1"),
+                ("OpenRouter", "https://openrouter.ai/api/v1"),
+            ):
+                op = op_row.operator("wm.context_set_string", text=label)
+                op.data_path = "scene.blendermcp_openai_base_url"
+                op.value = url
             sb.label(text="⚠ Separate billing from ChatGPT Plus", icon='INFO')
 
         # Hunyuan3D (Tencent)
@@ -6589,6 +6631,11 @@ def register():
         description="API key from https://platform.openai.com/api-keys (separate from ChatGPT Plus)",
         default=""
     )
+    bpy.types.Scene.blendermcp_openai_base_url = bpy.props.StringProperty(
+        name="OpenAI base URL",
+        description="OpenAI-compatible API endpoint",
+        default="https://api.openai.com/v1",
+    )
 
     bpy.types.Scene.blendermcp_use_hunyuan3d = bpy.props.BoolProperty(
         name="Use Hunyuan 3D",
@@ -6722,6 +6769,8 @@ def unregister():
         del bpy.types.Scene.blendermcp_use_openai
     with suppress(Exception):
         del bpy.types.Scene.blendermcp_openai_api_key
+    with suppress(Exception):
+        del bpy.types.Scene.blendermcp_openai_base_url
     del bpy.types.Scene.blendermcp_use_hunyuan3d
     del bpy.types.Scene.blendermcp_hunyuan3d_mode
     del bpy.types.Scene.blendermcp_hunyuan3d_secret_id

@@ -1485,20 +1485,31 @@ def generate_image_openai(
     style: str = None,
 ) -> str:
     """
-    Generate an image via OpenAI's image-generation API and save to disk.
+    Generate an image via an OpenAI-compatible image-generation API
+    and save to disk.
+
+    Endpoint is configured per-server via the `openai_base_url`
+    preference (defaults to https://api.openai.com/v1). Set it to
+    https://ai.comfly.chat/v1 for Comfly, https://openrouter.ai/api/v1
+    for OpenRouter, or any self-hosted vLLM endpoint that exposes the
+    /images/generations route. The model name is passed through verbatim,
+    so provider-specific aliases like 'gpt-image-2' or
+    'gemini-3.1-flash-image-preview-2k' work on Comfly.
 
     Use cases for design workflows:
     - Mood boards / concept art for client presentations
     - Reference images that feed Tripo3D/Meshy image-to-3D
     - Custom textures, signage mockups, banner art
 
-    Cost (DALL-E 3 standard 1024x1024 = $0.040). gpt-image-1 ranges
-    $0.011 - $0.167 per image depending on quality. Each call increments
-    the session $ counter and respects the openai dollar budget cap.
+    Cost (OpenAI-direct DALL-E 3 standard 1024x1024 = $0.040). gpt-image-1
+    ranges $0.011 - $0.167 per image depending on quality. Each call
+    increments the session $ counter and respects the openai dollar
+    budget cap. Comfly/OpenRouter pricing follows that provider.
 
     Parameters:
     - prompt: text description (DALL-E 3 max ~4000 chars)
-    - model: 'dall-e-3' (older, $0.04+) or 'gpt-image-1' (newer, varies)
+    - model: 'dall-e-3' (older, $0.04+) or 'gpt-image-1' (newer, varies).
+             Provider-specific aliases pass through unchanged.
     - size: dall-e-3: '1024x1024' | '1024x1792' | '1792x1024'
             gpt-image-1: '1024x1024' | '1024x1536' | '1536x1024'
     - quality: dall-e-3: 'standard' | 'hd'
@@ -1511,8 +1522,8 @@ def generate_image_openai(
     Returns saved path + revised prompt (DALL-E 3 always rewrites
     your prompt internally) + dollars spent.
 
-    NOTE: ChatGPT Plus subscription does NOT cover this. Separate API
-    credits required at platform.openai.com.
+    NOTE: For OpenAI-direct, ChatGPT Plus does NOT cover api.openai.com —
+    API credits are billed separately at platform.openai.com.
     """
     blender = get_blender_connection()
     result = _check_addon_result(blender.send_command("generate_image_openai", {
