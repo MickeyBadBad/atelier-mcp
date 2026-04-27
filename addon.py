@@ -3068,6 +3068,302 @@ class BlenderMCPServer:
         return self._import_glb_from_url(glb_url, target_size,
                                          service="meshy", task_id=task_id)
 
+    # ---- Hyper3D / Hunyuan3D sync wrappers --------------------------
+    #
+    # These mirror the pattern used by generate_tripo3d_text_to_3d and
+    # generate_meshy_text_to_3d: a single sync call that drives the
+    # multi-step legacy flow (create job → poll → import) to completion.
+    #
+    # They exist so that generate_3d_smart can route to hyper3d/hunyuan3d
+    # the same way it routes to tripo3d/meshy. Without them the smart
+    # router would AttributeError on those branches (the names only
+    # existed as MCP wrappers in server.py, not on BlenderMCPServer).
+    #
+    # Return shape matches generate_meshy_text_to_3d on success:
+    #   {"service", "task_id", "imported_objects", "imported_roots",
+    #    "scale_factor_applied", "target_size", ...service-specific keys}
+    # And uses {"error": ..., ...context} on failure (no exceptions
+    # raised — the @tool_envelope decorator on the MCP wrapper handles
+    # ok=False conversion at the boundary).
+
+    def generate_hyper3d_text_to_3d(self, prompt, target_size=2.0,
+                                     max_wait_seconds=180, poll_interval=2.5,
+                                     bbox_condition=None, name="Hyper3DGenerated"):
+        """Sync wrapper: create_rodin_job → poll_hyper3d_job_status →
+        import_hyper3d_asset.
+
+        Handles both Hyper3D Rodin modes (MAIN_SITE → subscription_key +
+        task_uuid; FAL_AI → request_id). Returns a meshy-style result
+        dict so generate_3d_smart can attach chosen_provider metadata.
+        """
+        # 1. Determine which mode we're in so we know how to extract
+        #    identifiers from the create response and which terminal
+        #    statuses to look for. We import bpy lazily because this
+        #    method may run in headless test contexts where bpy isn't
+        #    available — but generate_3d_smart only calls us when
+        #    check_services already confirmed hyper3d is ready, which
+        #    implies bpy is live.
+        try:
+            mode = bpy.context.scene.blendermcp_hyper3d_mode
+        except Exception:
+            # Default to MAIN_SITE shape if scene props aren't available.
+            mode = "MAIN_SITE"
+
+        # 2. Kick off the job.
+        create_result = self.create_rodin_job(
+            text_prompt=prompt,
+            images=None,
+            bbox_condition=bbox_condition,
+        )
+        if not isinstance(create_result, dict):
+            return {"error": f"create_rodin_job returned non-dict: {create_result!r}",
+                    "service": "hyper3d", "stage": "create"}
+        if "error" in create_result:
+            return {"error": create_result["error"],
+                    "service": "hyper3d", "stage": "create"}
+
+        # Extract identifiers per mode.
+        task_uuid = None
+        subscription_key = None
+        request_id = None
+        if mode == "MAIN_SITE":
+            if not create_result.get("submit_time"):
+                return {"error": f"Rodin create did not return submit_time: {create_result}",
+                        "service": "hyper3d", "stage": "create"}
+            task_uuid = create_result.get("uuid")
+            jobs = create_result.get("jobs") or {}
+            subscription_key = jobs.get("subscription_key")
+            if not (task_uuid and subscription_key):
+                return {"error": f"Missing uuid/subscription_key in create response: {create_result}",
+                        "service": "hyper3d", "stage": "create"}
+        elif mode == "FAL_AI":
+            request_id = create_result.get("request_id")
+            if not request_id:
+                return {"error": f"Missing request_id in FAL_AI create response: {create_result}",
+                        "service": "hyper3d", "stage": "create"}
+        else:
+            return {"error": f"Unknown Hyper3D Rodin mode: {mode}",
+                    "service": "hyper3d", "stage": "create"}
+
+        # 3. Poll until done.
+        deadline = time.time() + max_wait_seconds
+        last_status = None
+        done = False
+        while time.time() < deadline:
+            try:
+                if mode == "MAIN_SITE":
+                    status_result = self.poll_hyper3d_job_status(
+                        subscription_key=subscription_key)
+                    if isinstance(status_result, dict) and "error" in status_result:
+                        return {"error": status_result["error"],
+                                "service": "hyper3d", "stage": "poll",
+                                "task_uuid": task_uuid}
+                    statuses = (status_result or {}).get("status_list") or []
+                    last_status = statuses
+                    if statuses and any(s == "Failed" for s in statuses):
+                        return {"error": f"Hyper3D job failed: {statuses}",
+                                "service": "hyper3d", "stage": "poll",
+                                "task_uuid": task_uuid}
+                    # All terminal-success means every status is "Done".
+                    if statuses and all(s in ("Done", "Canceled") for s in statuses):
+                        if any(s == "Canceled" for s in statuses):
+                            return {"error": f"Hyper3D job canceled: {statuses}",
+                                    "service": "hyper3d", "stage": "poll",
+                                    "task_uuid": task_uuid}
+                        done = True
+                        break
+                else:  # FAL_AI
+                    status_result = self.poll_hyper3d_job_status(
+                        request_id=request_id)
+                    if isinstance(status_result, dict) and "error" in status_result:
+                        return {"error": status_result["error"],
+                                "service": "hyper3d", "stage": "poll",
+                                "request_id": request_id}
+                    last_status = (status_result or {}).get("status")
+                    if last_status == "COMPLETED":
+                        done = True
+                        break
+                    if last_status not in ("IN_PROGRESS", "IN_QUEUE", None):
+                        return {"error": f"Hyper3D FAL job ended with status {last_status}",
+                                "service": "hyper3d", "stage": "poll",
+                                "request_id": request_id,
+                                "task_data": status_result}
+            except Exception as e:
+                # Transient — keep polling.
+                last_status = f"poll-exception: {e}"
+            time.sleep(poll_interval)
+
+        if not done:
+            return {"error": f"Hyper3D generation timed out after {max_wait_seconds}s "
+                              f"(last status: {last_status})",
+                    "service": "hyper3d", "stage": "timeout",
+                    "task_uuid": task_uuid, "request_id": request_id}
+
+        # 4. Import.
+        if mode == "MAIN_SITE":
+            import_result = self.import_hyper3d_asset(
+                task_uuid=task_uuid, name=name)
+        else:
+            import_result = self.import_hyper3d_asset(
+                request_id=request_id, name=name)
+
+        if not isinstance(import_result, dict):
+            return {"error": f"import_hyper3d_asset returned non-dict: {import_result!r}",
+                    "service": "hyper3d", "stage": "import",
+                    "task_uuid": task_uuid, "request_id": request_id}
+        if not import_result.get("succeed"):
+            return {"error": import_result.get("error", "import failed"),
+                    "service": "hyper3d", "stage": "import",
+                    "task_uuid": task_uuid, "request_id": request_id,
+                    "task_data": import_result}
+
+        # 5. Build a result dict that mirrors meshy/tripo3d output so
+        #    generate_3d_smart's downstream metadata-mutation code (which
+        #    just does result[...] = ...) keeps working.
+        imported_name = import_result.get("name")
+        return {
+            "service": "hyper3d",
+            "task_id": task_uuid or request_id,
+            "task_uuid": task_uuid,
+            "request_id": request_id,
+            "mode": mode,
+            "imported_objects": [imported_name] if imported_name else [],
+            "imported_roots": [imported_name] if imported_name else [],
+            # The legacy import path doesn't return scale_factor; the
+            # Rodin GLB is already normalized to ~unit size, so callers
+            # should rely on world_bounding_box if they need exact size.
+            "scale_factor_applied": None,
+            "target_size": float(target_size) if target_size else None,
+            "world_bounding_box": import_result.get("world_bounding_box"),
+            "succeed": True,
+        }
+
+    def generate_hunyuan3d_model(self, text_prompt=None, image=None,
+                                  target_size=2.0,
+                                  max_wait_seconds=300, poll_interval=3.0,
+                                  name="Hunyuan3DGenerated"):
+        """Sync wrapper: create_hunyuan_job → poll_hunyuan_job_status →
+        import_hunyuan3d_asset.
+
+        Two Hunyuan3D modes are supported:
+        - OFFICIAL_API (Tencent Cloud): create returns {"Response": {"JobId":
+          ...}}; poll returns {"Response": {"Status": "DONE"|"RUN"|...,
+          "ResultFile3Ds": [{"Url": "..."}]}}; import takes zip_file_url.
+        - LOCAL_API: create_hunyuan_job_local_site is itself synchronous
+          and imports inline, returning {"status": "DONE"} on success — we
+          short-circuit and return that.
+        """
+        try:
+            mode = bpy.context.scene.blendermcp_hunyuan3d_mode
+        except Exception:
+            mode = "OFFICIAL_API"
+
+        # 1. Kick off the job.
+        create_result = self.create_hunyuan_job(
+            text_prompt=text_prompt,
+            image=image,
+        )
+        if not isinstance(create_result, dict):
+            return {"error": f"create_hunyuan_job returned non-dict: {create_result!r}",
+                    "service": "hunyuan3d", "stage": "create"}
+        if "error" in create_result:
+            return {"error": create_result["error"],
+                    "service": "hunyuan3d", "stage": "create"}
+
+        # LOCAL_API path is synchronous — it imports inline. We just pass
+        # its result through with a normalized shape.
+        if mode == "LOCAL_API":
+            if create_result.get("status") == "DONE":
+                return {
+                    "service": "hunyuan3d",
+                    "mode": mode,
+                    "task_id": None,
+                    "imported_objects": [],   # local API doesn't surface names
+                    "imported_roots": [],
+                    "scale_factor_applied": None,
+                    "target_size": float(target_size) if target_size else None,
+                    "succeed": True,
+                    "message": create_result.get("message"),
+                }
+            return {"error": f"Local Hunyuan3D returned unexpected: {create_result}",
+                    "service": "hunyuan3d", "stage": "create"}
+
+        # OFFICIAL_API path: extract JobId.
+        response_payload = create_result.get("Response") or {}
+        raw_job_id = response_payload.get("JobId")
+        if not raw_job_id:
+            return {"error": f"Missing JobId in Hunyuan create response: {create_result}",
+                    "service": "hunyuan3d", "stage": "create"}
+        job_id = f"job_{raw_job_id}"
+
+        # 2. Poll.
+        deadline = time.time() + max_wait_seconds
+        last_status = None
+        zip_file_url = None
+        done = False
+        while time.time() < deadline:
+            try:
+                status_result = self.poll_hunyuan_job_status(job_id=job_id)
+                if isinstance(status_result, dict) and "error" in status_result:
+                    return {"error": status_result["error"],
+                            "service": "hunyuan3d", "stage": "poll",
+                            "job_id": job_id}
+                resp = (status_result or {}).get("Response") or {}
+                last_status = resp.get("Status")
+                if last_status == "DONE":
+                    files = resp.get("ResultFile3Ds") or []
+                    if files:
+                        # Tencent's response uses "Url"; fall back to lowercase
+                        # in case API casing changes.
+                        zip_file_url = files[0].get("Url") or files[0].get("url")
+                    if not zip_file_url:
+                        return {"error": f"Hunyuan DONE but no ResultFile3Ds URL: {status_result}",
+                                "service": "hunyuan3d", "stage": "poll",
+                                "job_id": job_id}
+                    done = True
+                    break
+                if last_status not in ("RUN", "WAIT", None, "INIT"):
+                    # Anything not actively-running is treated as failure.
+                    return {"error": f"Hunyuan job ended with status {last_status}",
+                            "service": "hunyuan3d", "stage": "poll",
+                            "job_id": job_id, "task_data": status_result}
+            except Exception as e:
+                last_status = f"poll-exception: {e}"
+            time.sleep(poll_interval)
+
+        if not done:
+            return {"error": f"Hunyuan3D generation timed out after {max_wait_seconds}s "
+                              f"(last status: {last_status})",
+                    "service": "hunyuan3d", "stage": "timeout",
+                    "job_id": job_id}
+
+        # 3. Import.
+        import_result = self.import_hunyuan3d_asset(
+            name=name, zip_file_url=zip_file_url)
+        if not isinstance(import_result, dict):
+            return {"error": f"import_hunyuan3d_asset returned non-dict: {import_result!r}",
+                    "service": "hunyuan3d", "stage": "import",
+                    "job_id": job_id}
+        if not import_result.get("succeed"):
+            return {"error": import_result.get("error", "import failed"),
+                    "service": "hunyuan3d", "stage": "import",
+                    "job_id": job_id, "task_data": import_result}
+
+        imported_name = import_result.get("name")
+        return {
+            "service": "hunyuan3d",
+            "mode": mode,
+            "task_id": job_id,
+            "job_id": job_id,
+            "imported_objects": [imported_name] if imported_name else [],
+            "imported_roots": [imported_name] if imported_name else [],
+            "scale_factor_applied": None,
+            "target_size": float(target_size) if target_size else None,
+            "world_bounding_box": import_result.get("world_bounding_box"),
+            "zip_file_url": zip_file_url,
+            "succeed": True,
+        }
+
     # ---- Aggregate diagnostic --------------------------------------
 
     def check_services(self):
