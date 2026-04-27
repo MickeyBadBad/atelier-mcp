@@ -4119,7 +4119,8 @@ class BlenderMCPServer:
         except Exception as e:
             return {"error": str(e)}
 
-    def download_polyhaven_asset(self, asset_id, asset_type, resolution="1k", file_format=None):
+    def download_polyhaven_asset(self, asset_id, asset_type, resolution="1k", file_format=None,
+                                 target_size=None):
         try:
             # First get the files information
             files_response = requests.get(f"https://api.polyhaven.com/files/{asset_id}", headers=REQ_HEADERS)
@@ -4417,8 +4418,62 @@ class BlenderMCPServer:
                         else:
                             return {"error": f"Unsupported model format: {file_format}"}
 
-                        # Get the names of imported objects
-                        imported_objects = [obj.name for obj in bpy.context.selected_objects]
+                        # Get the imported objects (currently selected after import op)
+                        imported_objects_list = list(bpy.context.selected_objects)
+                        imported_objects = [obj.name for obj in imported_objects_list]
+
+                        # Optional rescaling — mirrors download_sketchfab_model.
+                        # Native PolyHaven model scales are inconsistent (props at
+                        # cm-scale, vehicles/buildings at m-scale); for archviz
+                        # users typically want a known target dim.
+                        if target_size is not None and asset_type == "models" and imported_objects_list:
+                            # Find root objects (no parent within imported set)
+                            imported_set = set(imported_objects_list)
+                            root_objects = [
+                                obj for obj in imported_objects_list
+                                if obj.parent is None or obj.parent not in imported_set
+                            ]
+
+                            def _get_all_mesh_children(obj):
+                                meshes = []
+                                if obj.type == 'MESH':
+                                    meshes.append(obj)
+                                for child in obj.children:
+                                    meshes.extend(_get_all_mesh_children(child))
+                                return meshes
+
+                            all_meshes = []
+                            for obj in root_objects:
+                                all_meshes.extend(_get_all_mesh_children(obj))
+
+                            if all_meshes:
+                                # Compute combined world bbox
+                                all_min = mathutils.Vector((float('inf'), float('inf'), float('inf')))
+                                all_max = mathutils.Vector((float('-inf'), float('-inf'), float('-inf')))
+                                for mesh_obj in all_meshes:
+                                    for corner in mesh_obj.bound_box:
+                                        world_corner = mesh_obj.matrix_world @ mathutils.Vector(corner)
+                                        all_min.x = min(all_min.x, world_corner.x)
+                                        all_min.y = min(all_min.y, world_corner.y)
+                                        all_min.z = min(all_min.z, world_corner.z)
+                                        all_max.x = max(all_max.x, world_corner.x)
+                                        all_max.y = max(all_max.y, world_corner.y)
+                                        all_max.z = max(all_max.z, world_corner.z)
+                                max_dim = max(
+                                    all_max.x - all_min.x,
+                                    all_max.y - all_min.y,
+                                    all_max.z - all_min.z,
+                                )
+                                if max_dim > 0:
+                                    scale_factor = float(target_size) / max_dim
+                                    # Apply scale only to roots — children inherit via matrix_world
+                                    for root in root_objects:
+                                        root.scale = (
+                                            root.scale.x * scale_factor,
+                                            root.scale.y * scale_factor,
+                                            root.scale.z * scale_factor,
+                                        )
+                                    bpy.context.view_layer.update()
 
                         return {
                             "success": True,

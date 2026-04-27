@@ -548,6 +548,12 @@ def set_camera_view(
     height_offset: float = 0.0,
 ) -> str:
     """
+    WHEN TO USE THIS vs frame_camera_to_objects:
+    - set_camera_view: pick a preset angle (front/back/left/right/top/3q/iso)
+      for a quick one-call camera positioning. No DOF, no composition rules.
+    - frame_camera_to_objects: fit camera to a list of target objects with
+      composition (thirds/center) + optional DOF. Preferred for hero shots.
+
     Position the active camera to look at a target using a preset angle.
 
     Skips quaternion math. Either target_object (name) or target_xyz must be
@@ -691,6 +697,11 @@ def frame_camera_to_objects(
     f_stop: float = 2.8,
 ) -> str:
     """
+    WHEN TO USE THIS vs set_camera_view:
+    - frame_camera_to_objects: needed when you want the camera to actually
+      contain specific objects in its frame, with composition + DOF.
+    - set_camera_view: when you just need a preset angle, no specific subject.
+
     Position the active camera so all targets fit in frame, with composed
     orbit + elevation + thirds offset.
 
@@ -1605,10 +1616,31 @@ def check_services(ctx: Context) -> str:
 @mcp.tool()
 def execute_blender_code(ctx: Context, code: str) -> str:
     """
-    Execute arbitrary Python code in Blender. Make sure to do it step-by-step by breaking it into smaller chunks.
+    Run arbitrary Python in Blender — the escape hatch.
+
+    USE ONLY WHEN no purpose-built tool fits. First check whether one of
+    these covers your need:
+
+      Materials: apply_material_color, apply_archviz_material, set_texture
+      Geometry:  boolean_cutout, mesh_cleanup, scatter_on_surface,
+                 array_duplicate, curve_extrude_profile, place_on_ground
+      Camera:    set_camera_view, frame_camera_to_objects
+      Lighting:  setup_lighting, set_world_hdri_rotation
+      Render:    render_image
+      Export:    quick_export
+      AI gen:    generate_3d_smart, generate_image_codex, generate_image_openai
+      Verify:    verify_object_grounded, get_viewport_screenshot
+
+    Direct execute_blender_code is appropriate for one-offs that don't fit
+    the above (custom modifier stacks, drivers, geometry-nodes graph
+    editing, undocumented operators). Always save your .blend before
+    running it — generated code can corrupt the scene.
 
     Parameters:
-    - code: The Python code to execute
+    - code: Python code to execute. `bpy` is in scope.
+
+    Returns: any stdout from the executed code, plus a list of newly
+    created/modified object names.
     """
     # Get the global connection
     blender = get_blender_connection()
@@ -1678,7 +1710,8 @@ def download_polyhaven_asset(
     asset_id: str,
     asset_type: str,
     resolution: str = "1k",
-    file_format: str = None
+    file_format: str = None,
+    target_size: float = None,
 ) -> str:
     """
     Download and import a Polyhaven asset into Blender.
@@ -1688,6 +1721,10 @@ def download_polyhaven_asset(
     - asset_type: The type of asset (hdris, textures, models)
     - resolution: The resolution to download (e.g., 1k, 2k, 4k)
     - file_format: Optional file format (e.g., hdr, exr for HDRIs; jpg, png for textures; gltf, fbx for models)
+    - target_size: optional float meters. If provided AND asset_type='models',
+      the imported model is rescaled so its largest dimension equals this
+      value. Default None = native scale (which can be wildly off — buildings
+      at 200m, props at 5cm — for archviz pass an explicit size).
 
     Returns a message indicating success or failure.
     """
@@ -1696,7 +1733,8 @@ def download_polyhaven_asset(
         "asset_id": asset_id,
         "asset_type": asset_type,
         "resolution": resolution,
-        "file_format": file_format
+        "file_format": file_format,
+        "target_size": target_size,
     }))
     return result
 
