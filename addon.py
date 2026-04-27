@@ -5700,6 +5700,78 @@ def _load_credentials_from_sidecar():
         print(f"[blender-mcp] credential sidecar restore failed: {e}")
 
 
+# --------------------------------------------------------------------------
+# Service registry — minimal seed for Sprint 5; full god-class refactor in
+# Sprint 10 reuses the same Service dataclass and field names.
+# --------------------------------------------------------------------------
+from dataclasses import dataclass, field
+from typing import Optional, List
+
+
+@dataclass
+class Service:
+    name: str
+    """Lower-snake-case key (matches BLENDERMCP_<NAME>_API_KEY env var stem)."""
+
+    needs_key: bool
+    """If True, calls fail with NO_API_KEY when no key is configured."""
+
+    key_pref: Optional[str] = None
+    """Field name on BlenderMCPAddonPreferences holding the persistent key."""
+
+    setup_url: Optional[str] = None
+    """Where users get an API key — surfaced in error hints + N-panel link."""
+
+    free_tier: bool = False
+    """Indicates this provider is meaningfully usable without paying."""
+
+    description: str = ""
+
+
+SERVICE_REGISTRY: List[Service] = [
+    Service(name="polyhaven",   needs_key=False, free_tier=True,
+            setup_url="https://polyhaven.com/",
+            description="CC0 PBR textures + HDRIs + models, ~1900 assets"),
+    Service(name="ambientcg",   needs_key=False, free_tier=True,
+            setup_url="https://ambientcg.com/",
+            description="CC0 PBR materials, ~2000 assets"),
+    Service(name="sketchfab",   needs_key=True, free_tier=True,
+            key_pref="sketchfab_api_key",
+            setup_url="https://sketchfab.com/settings/password",
+            description="Massive 3D model library (CC + paid)"),
+    Service(name="hyper3d",     needs_key=True, free_tier=True,
+            key_pref="hyper3d_api_key",
+            setup_url="https://hyper3d.ai/",
+            description="AI 3D generation (Rodin) — built-in free trial key"),
+    Service(name="hunyuan3d",   needs_key=True, free_tier=False,
+            key_pref="hunyuan3d_secret_id",
+            setup_url="https://cloud.tencent.com/",
+            description="Tencent Hunyuan 3D AI generation (CN)"),
+    Service(name="tripo3d",     needs_key=True, free_tier=False,
+            key_pref="tripo3d_api_key",
+            setup_url="https://platform.tripo3d.ai/",
+            description="AI 3D generation (text/image-to-3D, full PBR)"),
+    Service(name="meshy",       needs_key=True, free_tier=False,
+            key_pref="meshy_api_key",
+            setup_url="https://www.meshy.ai/settings/api",
+            description="AI 3D generation (preview + refine, multi-format)"),
+    Service(name="openai",      needs_key=True, free_tier=False,
+            key_pref="openai_api_key",
+            setup_url="https://platform.openai.com/api-keys",
+            description="OpenAI-compatible image gen (DALL-E / Comfly / OpenRouter / vLLM via openai_base_url)"),
+    Service(name="codex",       needs_key=False, free_tier=True,
+            setup_url="https://github.com/openai/codex",
+            description="Codex CLI image gen via ChatGPT subscription quota"),
+]
+
+
+def get_service(name: str) -> Optional[Service]:
+    for s in SERVICE_REGISTRY:
+        if s.name == name:
+            return s
+    return None
+
+
 # Blender Addon Preferences
 class BLENDERMCP_AddonPreferences(bpy.types.AddonPreferences):
     bl_idname = __name__
