@@ -151,3 +151,19 @@ def test_check_addon_result_ignores_empty_error_field():
     result = {"error": "", "data": {"x": 1}}
     out = _check_addon_result(result)
     assert out is result  # empty string is falsy
+
+
+def test_telemetry_default_is_opt_in():
+    """In the v2 fork, telemetry_consent defaults to False (opt-in)."""
+    import re
+    from pathlib import Path
+    addon_text = Path(__file__).resolve().parent.parent.joinpath("addon.py").read_text()
+    # Match the telemetry_consent property block — default must be False
+    m = re.search(
+        r"telemetry_consent:\s*BoolProperty\([^)]*?default\s*=\s*(\w+)",
+        addon_text,
+        re.DOTALL,
+    )
+    assert m, "could not find telemetry_consent property in addon.py"
+    assert m.group(1) == "False", \
+        f"telemetry default is {m.group(1)}; should be False (opt-in)"
