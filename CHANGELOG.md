@@ -6,6 +6,54 @@ This is an actively maintained community fork of [ahujasid/blender-mcp](https://
 
 ---
 
+## [1.9.0+fork.1] — 2026-04-28
+
+Sprint 4: AI 3D generation gets two more first-class providers (Tripo3D + Meshy.ai), plus a one-line installer and an AI-driven setup playbook so users can hand the entire install over to Claude / Cursor / Codex.
+
+### Added — Tripo3D integration
+
+[Tripo3D](https://www.tripo3d.ai/) is a top-tier text-to-3D / image-to-3D service with full PBR output and aggressive pricing (~$0.01/credit, 3-10 credits per generation). Free 5,000-credit Game Hub developer grant available.
+
+- **`get_tripo3d_status()`** — verify API key + report current credit balance
+- **`generate_tripo3d_text_to_3d(prompt, model_version, texture, pbr, face_limit, target_size, max_wait_seconds)`** — sync end-to-end: kicks off task, polls until success, downloads PBR GLB, imports at target_size. Default model: `v3.1-20260211` (Feb 2026, newest).
+- **`generate_tripo3d_image_to_3d(image_url, ...)`** — same, with public-image-URL input.
+
+Auth: `Authorization: Bearer tsk_<key>` against `https://api.tripo3d.ai/v2/openapi`. Polling interval 2.5s, default max-wait 240s.
+
+### Added — Meshy.ai integration
+
+[Meshy.ai](https://www.meshy.ai/) ships strong all-rounder quality and native multi-format output (GLB/FBX/OBJ/STL/USDZ/3MF). Pro tier or above required for API access (no free monthly API credits since 2025-03-20). Test key `msy_dummy_api_key_for_test_mode_12345678` works for development.
+
+- **`get_meshy_status()`** — verify API key
+- **`generate_meshy_text_to_3d(prompt, ai_model, topology, target_polycount, enable_pbr, refine, ...)`** — runs preview pass + optional refine pass with PBR textures in one call. Default `ai_model='meshy-6'` (Meshy-4 was retired 2026-03-20).
+- **`generate_meshy_image_to_3d(image_url, enable_pbr, topology, target_polycount, ...)`** — image input as public URL or base64 data URI.
+
+Auth: `Authorization: Bearer msy_<key>` against `https://api.meshy.ai/openapi`. Status enum: `PENDING / IN_PROGRESS / SUCCEEDED / FAILED / CANCELED`.
+
+### Added — installer & AI playbook
+
+- **`install.sh`** — one-line bash installer: detects OS, installs uv if missing, clones the fork to `~/.blender-mcp-fork`, runs `uv sync`, registers the MCP server with Claude Code (or prints config snippets for Cursor / Claude Desktop / VS Code), copies `addon.py` to Blender's user-scripts directory if Blender's installed. Idempotent — safe to re-run.
+- **`INSTALL_AI.md`** — step-by-step playbook for AI assistants. Users paste a single prompt and the AI walks the install end-to-end: env survey, dependency install, MCP registration, addon copy, connection verification, hello-world test. Includes a diagnostic checklist for "something's broken" debugging.
+
+### Added — Blender prefs
+
+`tripo3d_api_key` and `meshy_api_key` added to Add-on Preferences (PASSWORD subtype, persists across Blender restarts) plus `BLENDERMCP_TRIPO3D_API_KEY` and `BLENDERMCP_MESHY_API_KEY` env vars in the standard prefs > scene > env lookup chain.
+
+### Added — Blender N-panel UI
+
+`Use Tripo3D AI 3D generation` and `Use Meshy.ai AI 3D generation` checkboxes in the BlenderMCP side panel, with API-key fields that mirror to Add-on Preferences when prefs are available.
+
+### Note on AI 3D services in this toolkit
+
+You now have **four** providers wired up — Hyper3D Rodin (free trial), Hunyuan3D (China-mainland), Tripo3D (best price/quality), Meshy.ai (best all-rounder). The choice tree:
+
+- **Don't have a key, want to play** → Hyper3D Rodin (built-in trial key)
+- **Quality matters most** → Tripo3D `v3.1-20260211` with `pbr=true`
+- **Need quad topology / native multi-format** → Meshy.ai `meshy-6` with `topology='quad'`
+- **In China, want RMB billing** → Hunyuan3D
+
+---
+
 ## [1.8.0+fork.1] — 2026-04-28
 
 Sprint 3: 5 more generic geometry & IO tools — scatter, array, curve, export, HDRI rotation. Total fork-original tool count is now **15**, on top of the 22 inherited from upstream.

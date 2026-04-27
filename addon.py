@@ -214,6 +214,20 @@ class BlenderMCPServer:
                 return env_value
         return ""
 
+    def _get_tripo3d_api_key(self):
+        return self._get_config_value(
+            "blendermcp_tripo3d_api_key",
+            "tripo3d_api_key",
+            "BLENDERMCP_TRIPO3D_API_KEY",
+        )
+
+    def _get_meshy_api_key(self):
+        return self._get_config_value(
+            "blendermcp_meshy_api_key",
+            "meshy_api_key",
+            "BLENDERMCP_MESHY_API_KEY",
+        )
+
     def _get_hyper3d_api_key(self):
         # Let the free-trial button temporarily override persistent keys
         # without overwriting user-saved private keys.
@@ -445,6 +459,13 @@ class BlenderMCPServer:
             "curve_extrude_profile": self.curve_extrude_profile,
             "quick_export": self.quick_export,
             "set_world_hdri_rotation": self.set_world_hdri_rotation,
+            # Sprint 4: Tripo3D + Meshy.ai AI 3D generation
+            "get_tripo3d_status": self.get_tripo3d_status,
+            "generate_tripo3d_text_to_3d": self.generate_tripo3d_text_to_3d,
+            "generate_tripo3d_image_to_3d": self.generate_tripo3d_image_to_3d,
+            "get_meshy_status": self.get_meshy_status,
+            "generate_meshy_text_to_3d": self.generate_meshy_text_to_3d,
+            "generate_meshy_image_to_3d": self.generate_meshy_image_to_3d,
         }
 
         # Add Polyhaven handlers only if enabled
@@ -2662,6 +2683,393 @@ class BlenderMCPServer:
             result["strength"] = float(strength)
         return result
 
+    # ------------------------------------------------------------------
+    # Sprint 4: AI 3D generation services (Tripo3D + Meshy.ai)
+    # Both sync wrappers — kick off + poll + download + import in one call
+    # so the LLM gets a single round-trip per generation request.
+    # ------------------------------------------------------------------
+
+    # ---- Tripo3D ----------------------------------------------------
+
+    TRIPO3D_BASE = "https://api.tripo3d.ai/v2/openapi"
+    TRIPO3D_DEFAULT_MODEL_VERSION = "v3.1-20260211"
+
+    def get_tripo3d_status(self):
+        """Verify Tripo3D API connectivity and balance."""
+        key = self._get_tripo3d_api_key()
+        if not key:
+            return {"enabled": False, "message": "No Tripo3D API key configured. "
+                    "Get one at https://platform.tripo3d.ai/ and add to "
+                    "Blender prefs or set BLENDERMCP_TRIPO3D_API_KEY."}
+        try:
+            r = _resilient_get(
+                f"{self.TRIPO3D_BASE}/user/balance",
+                headers={"Authorization": f"Bearer {key}"},
+                timeout=15, max_retries=2,
+            )
+            data = r.json()
+            if data.get("code") != 0:
+                return {"enabled": False, "message": f"Tripo3D auth failed: {data}"}
+            balance = data.get("data", {}).get("balance", "unknown")
+            return {"enabled": True, "balance_credits": balance,
+                    "message": f"Tripo3D ready. Balance: {balance} credits."}
+        except Exception as e:
+            return {"enabled": False, "message": f"Tripo3D unreachable: {e}"}
+
+    def _tripo3d_create_task(self, body):
+        """POST /task; return task_id."""
+        key = self._get_tripo3d_api_key()
+        if not key:
+            return None, "No Tripo3D API key"
+        try:
+            r = requests.post(
+                f"{self.TRIPO3D_BASE}/task",
+                headers={"Authorization": f"Bearer {key}",
+                         "Content-Type": "application/json"},
+                json=body, timeout=30,
+            )
+            data = r.json()
+            if data.get("code") != 0:
+                return None, f"Tripo3D create_task failed: {data}"
+            return data["data"]["task_id"], None
+        except Exception as e:
+            return None, str(e)
+
+    def _tripo3d_poll(self, task_id, max_wait_seconds=240, interval=2.5):
+        """Poll GET /task/{id} until success/failed/timeout. Return final data."""
+        key = self._get_tripo3d_api_key()
+        url = f"{self.TRIPO3D_BASE}/task/{task_id}"
+        deadline = time.time() + max_wait_seconds
+        while time.time() < deadline:
+            try:
+                r = _resilient_get(url,
+                    headers={"Authorization": f"Bearer {key}"},
+                    timeout=15, max_retries=2)
+                data = r.json().get("data", {})
+                status = data.get("status")
+                if status in ("success", "failed", "cancelled", "banned", "expired"):
+                    return data, None
+            except Exception as e:
+                # transient — keep polling
+                pass
+            time.sleep(interval)
+        return None, f"Polling timed out after {max_wait_seconds}s"
+
+    def generate_tripo3d_text_to_3d(self, prompt, model_version=None,
+                                    texture=True, pbr=True,
+                                    face_limit=30000, target_size=2.0,
+                                    max_wait_seconds=240):
+        """Synchronous text-to-3D via Tripo3D: kicks off task, polls until
+        success, downloads the PBR GLB, imports into the scene at target_size.
+
+        Returns the task_id, imported object names, and download URL.
+        """
+        body = {
+            "type": "text_to_model",
+            "prompt": prompt,
+            "model_version": model_version or self.TRIPO3D_DEFAULT_MODEL_VERSION,
+            "texture": bool(texture),
+            "pbr": bool(pbr),
+            "face_limit": int(face_limit),
+        }
+        task_id, err = self._tripo3d_create_task(body)
+        if err:
+            return {"error": err}
+        data, err = self._tripo3d_poll(task_id, max_wait_seconds)
+        if err:
+            return {"error": err, "task_id": task_id}
+        if data.get("status") != "success":
+            return {"error": f"Generation {data.get('status')}: {data.get('error_msg')}",
+                    "task_id": task_id, "task_data": data}
+
+        output = data.get("output", {})
+        glb_url = output.get("pbr_model") or output.get("model")
+        if not glb_url:
+            return {"error": "No GLB URL in Tripo3D response", "task_id": task_id}
+
+        return self._import_glb_from_url(glb_url, target_size,
+                                         service="tripo3d", task_id=task_id)
+
+    def generate_tripo3d_image_to_3d(self, image_url, model_version=None,
+                                     texture=True, pbr=True,
+                                     target_size=2.0, max_wait_seconds=240):
+        """Image-to-3D via public image URL (no upload required for this path).
+
+        For local files, host them at a public URL first or use Hyper3D's
+        image-upload path.
+        """
+        # Detect format from URL
+        suffix = ".jpg"
+        for ext in (".jpg", ".jpeg", ".png", ".webp"):
+            if image_url.lower().endswith(ext):
+                suffix = ext.lstrip(".") if ext != ".jpeg" else "jpg"
+                break
+        body = {
+            "type": "image_to_model",
+            "file": {"type": suffix.lstrip("."), "url": image_url},
+            "model_version": model_version or self.TRIPO3D_DEFAULT_MODEL_VERSION,
+            "texture": bool(texture),
+            "pbr": bool(pbr),
+        }
+        task_id, err = self._tripo3d_create_task(body)
+        if err:
+            return {"error": err}
+        data, err = self._tripo3d_poll(task_id, max_wait_seconds)
+        if err:
+            return {"error": err, "task_id": task_id}
+        if data.get("status") != "success":
+            return {"error": f"Generation {data.get('status')}: {data.get('error_msg')}",
+                    "task_id": task_id, "task_data": data}
+        output = data.get("output", {})
+        glb_url = output.get("pbr_model") or output.get("model")
+        if not glb_url:
+            return {"error": "No GLB URL", "task_id": task_id}
+        return self._import_glb_from_url(glb_url, target_size,
+                                         service="tripo3d", task_id=task_id)
+
+    # ---- Meshy.ai ---------------------------------------------------
+
+    MESHY_BASE = "https://api.meshy.ai/openapi"
+
+    def get_meshy_status(self):
+        """Verify Meshy.ai API connectivity. Use the public test key
+        msy_dummy_api_key_for_test_mode_12345678 to verify auth without
+        spending credits."""
+        key = self._get_meshy_api_key()
+        if not key:
+            return {"enabled": False, "message": "No Meshy.ai API key configured. "
+                    "Get one at https://www.meshy.ai/settings/api and add to "
+                    "Blender prefs or set BLENDERMCP_MESHY_API_KEY."}
+        # Quick check: kick off a "list tasks" or use the dummy preview path
+        # by hitting /v2/text-to-3d list endpoint
+        try:
+            r = requests.get(
+                f"{self.MESHY_BASE}/v2/text-to-3d",
+                headers={"Authorization": f"Bearer {key}"},
+                params={"page_size": 1, "page_num": 1}, timeout=15,
+            )
+            if r.status_code == 401:
+                return {"enabled": False, "message": "Meshy.ai auth failed (401)"}
+            if r.status_code >= 500:
+                return {"enabled": False, "message": f"Meshy.ai HTTP {r.status_code}"}
+            return {"enabled": True, "message": "Meshy.ai reachable",
+                    "test_mode": key.startswith("msy_dummy_")}
+        except Exception as e:
+            return {"enabled": False, "message": f"Meshy.ai unreachable: {e}"}
+
+    def _meshy_create_text_task(self, body, mode="preview"):
+        key = self._get_meshy_api_key()
+        if not key:
+            return None, "No Meshy.ai API key"
+        try:
+            r = requests.post(
+                f"{self.MESHY_BASE}/v2/text-to-3d",
+                headers={"Authorization": f"Bearer {key}",
+                         "Content-Type": "application/json"},
+                json=body, timeout=30,
+            )
+            data = r.json()
+            if r.status_code >= 400:
+                return None, f"Meshy.ai HTTP {r.status_code}: {data}"
+            return data.get("result"), None
+        except Exception as e:
+            return None, str(e)
+
+    def _meshy_create_image_task(self, body):
+        key = self._get_meshy_api_key()
+        if not key:
+            return None, "No Meshy.ai API key"
+        try:
+            r = requests.post(
+                f"{self.MESHY_BASE}/v1/image-to-3d",
+                headers={"Authorization": f"Bearer {key}",
+                         "Content-Type": "application/json"},
+                json=body, timeout=30,
+            )
+            data = r.json()
+            if r.status_code >= 400:
+                return None, f"Meshy.ai HTTP {r.status_code}: {data}"
+            return data.get("result"), None
+        except Exception as e:
+            return None, str(e)
+
+    def _meshy_poll(self, task_id, mode, max_wait_seconds=300, interval=3.0):
+        """mode: 'text-to-3d' or 'image-to-3d'."""
+        key = self._get_meshy_api_key()
+        url = f"{self.MESHY_BASE}/v2/text-to-3d/{task_id}" if mode == "text-to-3d" \
+              else f"{self.MESHY_BASE}/v1/image-to-3d/{task_id}"
+        deadline = time.time() + max_wait_seconds
+        last_status = None
+        while time.time() < deadline:
+            try:
+                r = _resilient_get(url,
+                    headers={"Authorization": f"Bearer {key}"},
+                    timeout=15, max_retries=2)
+                data = r.json()
+                last_status = data.get("status")
+                if last_status in ("SUCCEEDED", "FAILED", "CANCELED"):
+                    return data, None
+            except Exception:
+                pass
+            time.sleep(interval)
+        return None, f"Polling timed out after {max_wait_seconds}s (last status: {last_status})"
+
+    def generate_meshy_text_to_3d(self, prompt, ai_model="meshy-6",
+                                  topology="quad", target_polycount=30000,
+                                  enable_pbr=True, refine=True,
+                                  target_size=2.0, max_wait_seconds=480):
+        """Sync text-to-3D via Meshy.ai. Runs preview pass; if refine=True,
+        chains a refine pass with PBR textures (more credits, better result).
+        Imports the final GLB into the scene at target_size.
+        """
+        # Preview pass
+        preview_body = {
+            "mode": "preview",
+            "prompt": prompt,
+            "ai_model": ai_model,
+            "topology": topology,
+            "target_polycount": int(target_polycount),
+            "target_formats": ["glb"],
+        }
+        preview_id, err = self._meshy_create_text_task(preview_body)
+        if err:
+            return {"error": err, "stage": "preview-create"}
+        preview_data, err = self._meshy_poll(preview_id, "text-to-3d", max_wait_seconds // 2)
+        if err:
+            return {"error": err, "stage": "preview-poll", "task_id": preview_id}
+        if preview_data.get("status") != "SUCCEEDED":
+            return {"error": f"Preview {preview_data.get('status')}",
+                    "stage": "preview-fail", "task_id": preview_id,
+                    "task_data": preview_data}
+
+        final_data = preview_data
+        final_id = preview_id
+
+        if refine:
+            refine_body = {
+                "mode": "refine",
+                "preview_task_id": preview_id,
+                "enable_pbr": bool(enable_pbr),
+                "target_formats": ["glb"],
+            }
+            refine_id, err = self._meshy_create_text_task(refine_body)
+            if err:
+                return {"error": err, "stage": "refine-create",
+                        "preview_task_id": preview_id}
+            refine_data, err = self._meshy_poll(refine_id, "text-to-3d", max_wait_seconds // 2)
+            if err:
+                return {"error": err, "stage": "refine-poll", "task_id": refine_id}
+            if refine_data.get("status") != "SUCCEEDED":
+                return {"error": f"Refine {refine_data.get('status')}",
+                        "stage": "refine-fail", "task_id": refine_id,
+                        "task_data": refine_data}
+            final_data = refine_data
+            final_id = refine_id
+
+        glb_url = (final_data.get("model_urls") or {}).get("glb")
+        if not glb_url:
+            return {"error": "No GLB URL in Meshy response",
+                    "task_id": final_id, "task_data": final_data}
+
+        result = self._import_glb_from_url(glb_url, target_size,
+                                           service="meshy",
+                                           task_id=final_id)
+        result["preview_task_id"] = preview_id
+        result["refined"] = bool(refine)
+        return result
+
+    def generate_meshy_image_to_3d(self, image_url, enable_pbr=True,
+                                   topology="quad", target_polycount=30000,
+                                   target_size=2.0, max_wait_seconds=300):
+        """Sync image-to-3D via Meshy.ai. image_url must be a public URL OR
+        a base64 data URI ('data:image/jpeg;base64,...').
+        """
+        body = {
+            "image_url": image_url,
+            "should_texture": True,
+            "enable_pbr": bool(enable_pbr),
+            "topology": topology,
+            "target_polycount": int(target_polycount),
+            "target_formats": ["glb"],
+        }
+        task_id, err = self._meshy_create_image_task(body)
+        if err:
+            return {"error": err, "stage": "create"}
+        data, err = self._meshy_poll(task_id, "image-to-3d", max_wait_seconds)
+        if err:
+            return {"error": err, "stage": "poll", "task_id": task_id}
+        if data.get("status") != "SUCCEEDED":
+            return {"error": f"Image-to-3D {data.get('status')}",
+                    "task_id": task_id, "task_data": data}
+        glb_url = (data.get("model_urls") or {}).get("glb")
+        if not glb_url:
+            return {"error": "No GLB URL", "task_id": task_id}
+        return self._import_glb_from_url(glb_url, target_size,
+                                         service="meshy", task_id=task_id)
+
+    # ---- Shared GLB import helper -----------------------------------
+
+    def _import_glb_from_url(self, glb_url, target_size, service, task_id):
+        """Download a GLB to a temp file (resilient), import, optionally
+        rescale so largest dim equals target_size. Returns import metadata.
+        """
+        suffix = ".glb"
+        tmp_fd, tmp_path = tempfile.mkstemp(suffix=suffix, prefix=f"{service}_{task_id[:8]}_")
+        os.close(tmp_fd)
+        try:
+            _resilient_download_to_file(glb_url, tmp_path, max_retries=4)
+        except Exception as e:
+            with suppress(Exception):
+                os.unlink(tmp_path)
+            return {"error": f"Download failed: {e}", "task_id": task_id,
+                    "service": service, "glb_url": glb_url}
+
+        # Snapshot existing object names so we can identify newly imported
+        before = set(o.name for o in bpy.data.objects)
+        try:
+            bpy.ops.import_scene.gltf(filepath=tmp_path)
+        except Exception as e:
+            return {"error": f"GLB import failed: {e}", "task_id": task_id,
+                    "service": service, "downloaded_to": tmp_path}
+        new_names = [o.name for o in bpy.data.objects if o.name not in before]
+
+        # Find the imported root — first new object that has no parent OR is named Sketchfab_model-style
+        new_objs = [bpy.data.objects[n] for n in new_names]
+        roots = [o for o in new_objs if o.parent is None or o.parent.name not in new_names]
+        # Resize to target_size if requested
+        scale_factor = None
+        if target_size and roots:
+            # Compute bbox of all newly imported meshes
+            mins = [float("inf")] * 3
+            maxs = [-float("inf")] * 3
+            for o in new_objs:
+                if o.type != 'MESH' or o.data is None:
+                    continue
+                for v in o.bound_box:
+                    w = o.matrix_world @ mathutils.Vector(v)
+                    for i in range(3):
+                        mins[i] = min(mins[i], w[i])
+                        maxs[i] = max(maxs[i], w[i])
+            size = [maxs[i] - mins[i] for i in range(3)]
+            largest = max(size) if size and max(size) > 0 else 0
+            if largest > 0:
+                scale_factor = float(target_size) / largest
+                for r in roots:
+                    r.scale = (r.scale[0] * scale_factor,
+                               r.scale[1] * scale_factor,
+                               r.scale[2] * scale_factor)
+
+        return {
+            "service": service,
+            "task_id": task_id,
+            "glb_url": glb_url,
+            "imported_objects": new_names,
+            "imported_roots": [r.name for r in roots],
+            "scale_factor_applied": scale_factor,
+            "target_size": float(target_size) if target_size else None,
+            "downloaded_to": tmp_path,
+        }
+
     def execute_code(self, code):
         """Execute arbitrary Blender Python code"""
         # This is powerful but potentially dangerous - use with caution
@@ -4612,6 +5020,18 @@ class BLENDERMCP_AddonPreferences(bpy.types.AddonPreferences):
         description="Persistent Hunyuan3D API URL",
         default=""
     )
+    tripo3d_api_key: bpy.props.StringProperty(
+        name="Tripo3D API Key",
+        subtype="PASSWORD",
+        description="Persistent Tripo3D API Key (https://platform.tripo3d.ai/)",
+        default=""
+    )
+    meshy_api_key: bpy.props.StringProperty(
+        name="Meshy.ai API Key",
+        subtype="PASSWORD",
+        description="Persistent Meshy.ai API Key (https://www.meshy.ai/settings/api)",
+        default=""
+    )
 
     def draw(self, context):
         layout = self.layout
@@ -4646,6 +5066,8 @@ class BLENDERMCP_AddonPreferences(bpy.types.AddonPreferences):
         cred_box.prop(self, "hunyuan3d_secret_id", text="Hunyuan3D SecretId")
         cred_box.prop(self, "hunyuan3d_secret_key", text="Hunyuan3D SecretKey")
         cred_box.prop(self, "hunyuan3d_api_url", text="Hunyuan3D API URL")
+        cred_box.prop(self, "tripo3d_api_key", text="Tripo3D API Key")
+        cred_box.prop(self, "meshy_api_key", text="Meshy.ai API Key")
 
 # Blender UI Panel
 class BLENDERMCP_PT_Panel(bpy.types.Panel):
@@ -4698,7 +5120,23 @@ class BLENDERMCP_PT_Panel(bpy.types.Panel):
                 layout.prop(scene, "blendermcp_hunyuan3d_num_inference_steps", text="Number of Inference Steps")
                 layout.prop(scene, "blendermcp_hunyuan3d_guidance_scale", text="Guidance Scale")
                 layout.prop(scene, "blendermcp_hunyuan3d_texture", text="Generate Texture")
-        
+
+        # Tripo3D — added by fork
+        layout.prop(scene, "blendermcp_use_tripo3d", text="Use Tripo3D AI 3D generation")
+        if scene.blendermcp_use_tripo3d:
+            if prefs:
+                layout.prop(prefs, "tripo3d_api_key", text="Tripo3D API Key")
+            else:
+                layout.prop(scene, "blendermcp_tripo3d_api_key", text="Tripo3D API Key")
+
+        # Meshy.ai — added by fork
+        layout.prop(scene, "blendermcp_use_meshy", text="Use Meshy.ai AI 3D generation")
+        if scene.blendermcp_use_meshy:
+            if prefs:
+                layout.prop(prefs, "meshy_api_key", text="Meshy.ai API Key")
+            else:
+                layout.prop(scene, "blendermcp_meshy_api_key", text="Meshy.ai API Key")
+
         if not scene.blendermcp_server_running:
             layout.operator("blendermcp.start_server", text="Connect to MCP server")
         else:
@@ -4824,6 +5262,30 @@ def register():
         default=""
     )
 
+    # Tripo3D + Meshy.ai (added by fork)
+    bpy.types.Scene.blendermcp_use_tripo3d = bpy.props.BoolProperty(
+        name="Use Tripo3D",
+        description="Enable Tripo3D AI 3D generation (text-to-3D, image-to-3D)",
+        default=False
+    )
+    bpy.types.Scene.blendermcp_tripo3d_api_key = bpy.props.StringProperty(
+        name="Tripo3D API Key",
+        subtype="PASSWORD",
+        description="API Key from https://platform.tripo3d.ai/",
+        default=""
+    )
+    bpy.types.Scene.blendermcp_use_meshy = bpy.props.BoolProperty(
+        name="Use Meshy.ai",
+        description="Enable Meshy.ai AI 3D generation (text-to-3D, image-to-3D)",
+        default=False
+    )
+    bpy.types.Scene.blendermcp_meshy_api_key = bpy.props.StringProperty(
+        name="Meshy.ai API Key",
+        subtype="PASSWORD",
+        description="API Key from https://www.meshy.ai/settings/api",
+        default=""
+    )
+
     bpy.types.Scene.blendermcp_use_hunyuan3d = bpy.props.BoolProperty(
         name="Use Hunyuan 3D",
         description="Enable Hunyuan asset integration",
@@ -4934,6 +5396,15 @@ def unregister():
     del bpy.types.Scene.blendermcp_hyper3d_api_key
     del bpy.types.Scene.blendermcp_use_sketchfab
     del bpy.types.Scene.blendermcp_sketchfab_api_key
+    # Sprint 4 cleanup
+    with suppress(Exception):
+        del bpy.types.Scene.blendermcp_use_tripo3d
+    with suppress(Exception):
+        del bpy.types.Scene.blendermcp_tripo3d_api_key
+    with suppress(Exception):
+        del bpy.types.Scene.blendermcp_use_meshy
+    with suppress(Exception):
+        del bpy.types.Scene.blendermcp_meshy_api_key
     del bpy.types.Scene.blendermcp_use_hunyuan3d
     del bpy.types.Scene.blendermcp_hunyuan3d_mode
     del bpy.types.Scene.blendermcp_hunyuan3d_secret_id

@@ -1222,6 +1222,231 @@ def set_world_hdri_rotation(
         return f"Error in set_world_hdri_rotation: {str(e)}"
 
 
+# --------------------------------------------------------------------------
+# Sprint 4 — AI 3D generation: Tripo3D + Meshy.ai
+# Sync wrappers (kick-off + poll + download + import in one MCP call) so
+# the LLM gets a single round-trip per generation request.
+# --------------------------------------------------------------------------
+
+@mcp.tool()
+def get_tripo3d_status(ctx: Context) -> str:
+    """
+    Check if Tripo3D is configured and reachable. Tripo3D is a top-tier
+    text-to-3D / image-to-3D service with full PBR output and competitive
+    pricing (~$0.01/credit, ~3-10 credits per generation). Free 5,000-credit
+    developer grant available via the Game Hub program.
+
+    Get an API key at https://platform.tripo3d.ai/ and either:
+    - Add to Blender prefs: Edit > Preferences > Add-ons > Blender MCP
+    - Or set env var BLENDERMCP_TRIPO3D_API_KEY in your MCP config
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("get_tripo3d_status", {})
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error checking Tripo3D status: {str(e)}")
+        return f"Error checking Tripo3D status: {str(e)}"
+
+
+@mcp.tool()
+def generate_tripo3d_text_to_3d(
+    ctx: Context,
+    prompt: str,
+    model_version: str = None,
+    texture: bool = True,
+    pbr: bool = True,
+    face_limit: int = 30000,
+    target_size: float = 2.0,
+    max_wait_seconds: int = 240,
+) -> str:
+    """
+    Generate a 3D model from text via Tripo3D — synchronous: the call
+    creates the task, polls until done, downloads the GLB, and imports
+    into the scene. Returns task_id, imported object names, and download URL.
+
+    Parameters:
+    - prompt: text description (e.g. "vintage brass speakeasy door knocker")
+    - model_version: 'v3.1-20260211' (default, newest), 'v3.0-20250812',
+                     'v2.5-20250123', 'P1-20260311' (low-poly tuned)
+    - texture: include textures
+    - pbr: use PBR shading (recommended for archviz)
+    - face_limit: max polygon count (1000 - 100000)
+    - target_size: rescale imported model so largest dim = this many meters
+    - max_wait_seconds: polling timeout (typical 30-90s; up to 4 min)
+
+    Cost estimate: 3-10 credits per generation (~$0.03-$0.10).
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("generate_tripo3d_text_to_3d", {
+            "prompt": prompt,
+            "model_version": model_version,
+            "texture": texture,
+            "pbr": pbr,
+            "face_limit": face_limit,
+            "target_size": target_size,
+            "max_wait_seconds": max_wait_seconds,
+        })
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error generating Tripo3D model: {str(e)}")
+        return f"Error generating Tripo3D model: {str(e)}"
+
+
+@mcp.tool()
+def generate_tripo3d_image_to_3d(
+    ctx: Context,
+    image_url: str,
+    model_version: str = None,
+    texture: bool = True,
+    pbr: bool = True,
+    target_size: float = 2.0,
+    max_wait_seconds: int = 240,
+) -> str:
+    """
+    Generate a 3D model from a single reference image via Tripo3D.
+
+    Parameters:
+    - image_url: PUBLIC URL to a JPG/PNG/WebP. For local files, host them
+      first (imgur, S3, etc.) or use the Hyper3D image-upload path.
+    - model_version: see generate_tripo3d_text_to_3d
+    - texture, pbr: enable texturing / PBR
+    - target_size: rescale imported model so largest dim = this many meters
+    - max_wait_seconds: polling timeout
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("generate_tripo3d_image_to_3d", {
+            "image_url": image_url,
+            "model_version": model_version,
+            "texture": texture,
+            "pbr": pbr,
+            "target_size": target_size,
+            "max_wait_seconds": max_wait_seconds,
+        })
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error generating Tripo3D image-to-3D: {str(e)}")
+        return f"Error generating Tripo3D image-to-3D: {str(e)}"
+
+
+@mcp.tool()
+def get_meshy_status(ctx: Context) -> str:
+    """
+    Check if Meshy.ai is configured and reachable. Meshy.ai is a top-tier
+    text-to-3D / image-to-3D service with strong all-around quality, native
+    GLB / FBX / OBJ / STL / USDZ / 3MF output. AI texturing, remesh, rigging
+    are separate billable endpoints.
+
+    API requires Pro tier or above (no free monthly API credits since
+    2025-03-20). Test key for development: msy_dummy_api_key_for_test_mode_12345678.
+
+    Get an API key at https://www.meshy.ai/settings/api and either:
+    - Add to Blender prefs: Edit > Preferences > Add-ons > Blender MCP
+    - Or set env var BLENDERMCP_MESHY_API_KEY in your MCP config
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("get_meshy_status", {})
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error checking Meshy.ai status: {str(e)}")
+        return f"Error checking Meshy.ai status: {str(e)}"
+
+
+@mcp.tool()
+def generate_meshy_text_to_3d(
+    ctx: Context,
+    prompt: str,
+    ai_model: str = "meshy-6",
+    topology: str = "quad",
+    target_polycount: int = 30000,
+    enable_pbr: bool = True,
+    refine: bool = True,
+    target_size: float = 2.0,
+    max_wait_seconds: int = 480,
+) -> str:
+    """
+    Generate a 3D model from text via Meshy.ai — synchronous full pipeline.
+
+    Runs the preview pass, then optionally chains a refine pass with PBR
+    textures (more credits, much better result). Imports the final GLB into
+    the scene at target_size.
+
+    Parameters:
+    - prompt: text description (max 600 chars)
+    - ai_model: 'meshy-6' (default), 'meshy-5', or 'latest'.
+                Meshy-4 was retired 2026-03-20.
+    - topology: 'quad' (default — clean retopology) or 'triangle'
+    - target_polycount: 100-300000, default 30000
+    - enable_pbr: turn on PBR textures during refine pass
+    - refine: True (default) does preview + refine; False is preview only
+              (cheaper, no textures)
+    - target_size: rescale so largest dim = this many meters
+    - max_wait_seconds: total polling timeout for both passes
+
+    Cost (Meshy-6): preview = 20 credits + refine 20 credits = 40 credits.
+    Use refine=False for cheap iteration (20 credits).
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("generate_meshy_text_to_3d", {
+            "prompt": prompt,
+            "ai_model": ai_model,
+            "topology": topology,
+            "target_polycount": target_polycount,
+            "enable_pbr": enable_pbr,
+            "refine": refine,
+            "target_size": target_size,
+            "max_wait_seconds": max_wait_seconds,
+        })
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error generating Meshy.ai text-to-3D: {str(e)}")
+        return f"Error generating Meshy.ai text-to-3D: {str(e)}"
+
+
+@mcp.tool()
+def generate_meshy_image_to_3d(
+    ctx: Context,
+    image_url: str,
+    enable_pbr: bool = True,
+    topology: str = "quad",
+    target_polycount: int = 30000,
+    target_size: float = 2.0,
+    max_wait_seconds: int = 300,
+) -> str:
+    """
+    Generate a 3D model from an image via Meshy.ai.
+
+    Parameters:
+    - image_url: PUBLIC URL to a JPG/PNG, OR a base64 data URI
+                 ('data:image/jpeg;base64,...'). No multipart upload required.
+    - enable_pbr: turn on PBR textures
+    - topology: 'quad' (default) or 'triangle'
+    - target_polycount: 100-300000, default 30000
+    - target_size: rescale so largest dim = this many meters
+    - max_wait_seconds: polling timeout
+
+    Cost (Meshy-6): 30 credits for image-to-3D with texturing.
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("generate_meshy_image_to_3d", {
+            "image_url": image_url,
+            "enable_pbr": enable_pbr,
+            "topology": topology,
+            "target_polycount": target_polycount,
+            "target_size": target_size,
+            "max_wait_seconds": max_wait_seconds,
+        })
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error generating Meshy.ai image-to-3D: {str(e)}")
+        return f"Error generating Meshy.ai image-to-3D: {str(e)}"
+
+
 @telemetry_tool("execute_blender_code")
 @mcp.tool()
 def execute_blender_code(ctx: Context, code: str) -> str:

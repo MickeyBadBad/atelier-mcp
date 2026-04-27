@@ -26,7 +26,9 @@ This fork ships those fixes plus design-workflow tools targeted at interior desi
 | 6 generic archviz tools (v1.7) | This fork | `mesh_cleanup`, `boolean_cutout`, `frame_camera_to_objects`, `setup_lighting` (8 moods), `apply_archviz_material` (14 genres), `list_archviz_genres` |
 | ambientCG integration (v1.7) | This fork | CC0 PBR library (~2000 materials) — fills PolyHaven fabric/leather/carpet gaps |
 | Resilient downloads (v1.7) | This fork | Retry + Range-resume — Sketchfab IncompleteRead drops handled transparently |
-| **5 geometry / IO tools (v1.8)** | **This fork** | **`scatter_on_surface`, `array_duplicate` (linear+radial), `curve_extrude_profile`, `quick_export` (GLB/FBX/OBJ/USD), `set_world_hdri_rotation`** |
+| 5 geometry / IO tools (v1.8) | This fork | `scatter_on_surface`, `array_duplicate` (linear+radial), `curve_extrude_profile`, `quick_export` (GLB/FBX/OBJ/USD), `set_world_hdri_rotation` |
+| **Tripo3D + Meshy.ai integrations (v1.9)** | **This fork** | **6 sync tools — text-to-3D and image-to-3D for both services, with auto-polling and auto-import** |
+| **One-line installer + AI-driven setup (v1.9)** | **This fork** | **`curl ... \| bash` and an `INSTALL_AI.md` playbook for AI agents to install end-to-end** |
 | API-credential persistence | [#235](https://github.com/ahujasid/blender-mcp/pull/235) | Sketchfab/Hyper3D tokens lost on Blender restart |
 | Visual grounding verification | [#230](https://github.com/ahujasid/blender-mcp/pull/230) | "Is this furniture actually on the floor?" |
 | Distinguish addon vs transport errors | [#228](https://github.com/ahujasid/blender-mcp/pull/228) | "Communication error" misdiagnosis |
@@ -57,7 +59,21 @@ BlenderMCP exposes Blender as a set of MCP tools, so any AI client speaking the 
 
 ## 📦 Quick install
 
-The flow is **3 steps, in this order**:
+### 🪄 The one-liner (macOS / Linux)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/MickeyBadBad/blender-mcp/develop/install.sh | bash
+```
+
+This installs `uv` if missing, clones the fork to `~/.blender-mcp-fork`, runs `uv sync`, registers the MCP server with Claude Code (or prints the JSON snippet for Cursor / Claude Desktop / VS Code), and copies `addon.py` to your Blender user-scripts directory if Blender's installed. You finish by enabling the addon inside Blender + clicking **Connect to Claude**.
+
+> **Want your AI assistant to do it for you?** Just paste this into Claude Code / Cursor / Codex:
+>
+> > Help me install [blender-mcp](https://github.com/MickeyBadBad/blender-mcp). Follow the [INSTALL_AI.md](https://github.com/MickeyBadBad/blender-mcp/blob/develop/INSTALL_AI.md) playbook on the develop branch — run each step, diagnose failures, and report status before moving on. My OS is **macOS / Linux / Windows**. My AI client is **Claude Code / Cursor / Claude Desktop / VS Code Copilot / Codex**.
+>
+> The agent runs the diagnostic checklist, installs missing pieces, and tells you what manual steps remain. See [INSTALL_AI.md](./INSTALL_AI.md) for the full playbook.
+
+### Manual install — 3 steps in order
 
 > **Step 1.** Install [`uv`](https://docs.astral.sh/uv/) (Python package runner)
 > **Step 2.** Configure your MCP client (Claude Code / Cursor / Claude Desktop / VS Code)
@@ -256,6 +272,12 @@ That's it — your AI client should now show a hammer 🔨 icon with `mcp__blend
 ### AI 3D generation
 | Tool | What it does |
 |---|---|
+| **`generate_tripo3d_text_to_3d`** | 🆕 v1.9 — text-to-3D via [Tripo3D](https://www.tripo3d.ai/) (sync, auto-polling, full PBR) |
+| **`generate_tripo3d_image_to_3d`** | 🆕 v1.9 — image-to-3D via Tripo3D (image_url) |
+| **`generate_meshy_text_to_3d`** | 🆕 v1.9 — text-to-3D via [Meshy.ai](https://www.meshy.ai/) (preview + refine, sync) |
+| **`generate_meshy_image_to_3d`** | 🆕 v1.9 — image-to-3D via Meshy.ai (URL or base64 data URI) |
+| **`get_tripo3d_status`** | 🆕 v1.9 — check Tripo3D credit balance |
+| **`get_meshy_status`** | 🆕 v1.9 — check Meshy.ai connectivity |
 | `generate_hyper3d_model_via_text` | Generate a 3D model from a text prompt (Hyper3D Rodin) |
 | `generate_hyper3d_model_via_images` | Generate a 3D model from reference images (Hyper3D Rodin) |
 | `generate_hunyuan3d_model` | Generate a 3D model via Tencent Hunyuan3D |
@@ -333,6 +355,8 @@ Lookup order: **Add-on Preferences → Scene properties → environment variable
 | `BLENDERMCP_HUNYUAN3D_SECRET_ID` | unset | Tencent Cloud SecretId |
 | `BLENDERMCP_HUNYUAN3D_SECRET_KEY` | unset | Tencent Cloud SecretKey |
 | `BLENDERMCP_HUNYUAN3D_API_URL` | `http://localhost:8081` | Hunyuan3D API endpoint |
+| `BLENDERMCP_TRIPO3D_API_KEY` | unset | Tripo3D API key (`tsk_...`) |
+| `BLENDERMCP_MESHY_API_KEY` | unset | Meshy.ai API key (`msy_...`) |
 
 ---
 
