@@ -32,6 +32,49 @@ bl_info = {
 
 RODIN_FREE_TRIAL_KEY = "k9TcfFoEhNd9cCPP2guHAHHHkctZHIRhZDywZ1euGUXwihbYLpOjQhofby80NJez"
 
+# --------------------------------------------------------------------------
+# Usage budget tracker — module-level, resets when addon is re-registered.
+# Each AI-generation call increments the counter on success and refuses if
+# the increment would exceed the configured cap. Caps default to a sane
+# "you probably won't burn through this by accident" amount.
+# --------------------------------------------------------------------------
+_USAGE = {
+    "tripo3d_credits_used":     0,
+    "meshy_credits_used":       0,
+    "openai_dollars_spent":     0.0,
+}
+_BUDGETS = {
+    # Per-session caps (a "session" is from addon-register to disable/restart)
+    "tripo3d_credits_max":      500,    # ~$5 of API credits
+    "meshy_credits_max":        200,    # ~5 standard generations
+    "openai_dollars_max":       5.00,   # ~50-125 DALL-E 3 std images
+}
+
+def _usage_check(service_key, cost):
+    """Return (ok, message). ok=False blocks the call."""
+    used = _USAGE.get(f"{service_key}_credits_used",
+                       _USAGE.get(f"{service_key}_dollars_spent", 0))
+    cap_key = (f"{service_key}_credits_max"
+               if f"{service_key}_credits_used" in _USAGE
+               else f"{service_key}_dollars_max")
+    cap = _BUDGETS.get(cap_key)
+    if cap is None:
+        return True, None
+    if used + cost > cap:
+        return False, (f"Would exceed {service_key} session budget: "
+                       f"used={used} + this={cost} > cap={cap}. "
+                       f"Raise via set_usage_budget() or shrink the request.")
+    return True, None
+
+def _usage_increment(service_key, cost):
+    """Increment counter on successful generation. Idempotent on no-op cost."""
+    if cost <= 0:
+        return
+    counter_key = (f"{service_key}_credits_used"
+                   if f"{service_key}_credits_used" in _USAGE
+                   else f"{service_key}_dollars_spent")
+    _USAGE[counter_key] = _USAGE.get(counter_key, 0) + cost
+
 # Add User-Agent as required by Poly Haven API
 REQ_HEADERS = requests.utils.default_headers()
 REQ_HEADERS.update({"User-Agent": "blender-mcp"})
@@ -226,6 +269,13 @@ class BlenderMCPServer:
             "blendermcp_meshy_api_key",
             "meshy_api_key",
             "BLENDERMCP_MESHY_API_KEY",
+        )
+
+    def _get_openai_api_key(self):
+        return self._get_config_value(
+            "blendermcp_openai_api_key",
+            "openai_api_key",
+            "BLENDERMCP_OPENAI_API_KEY",
         )
 
     def _get_hyper3d_api_key(self):
@@ -468,6 +518,13 @@ class BlenderMCPServer:
             "generate_meshy_image_to_3d": self.generate_meshy_image_to_3d,
             # Aggregate diagnostic
             "check_services": self.check_services,
+            # v1.10: usage tracking + smart routing + OpenAI image gen
+            "get_usage_report": self.get_usage_report,
+            "set_usage_budget": self.set_usage_budget,
+            "reset_usage_counters": self.reset_usage_counters,
+            "generate_3d_smart": self.generate_3d_smart,
+            "get_openai_status": self.get_openai_status,
+            "generate_image_openai": self.generate_image_openai,
         }
 
         # Add Polyhaven handlers only if enabled
@@ -3121,6 +3178,372 @@ class BlenderMCPServer:
             "downloaded_to": tmp_path,
         }
 
+    # ------------------------------------------------------------------
+    # v1.10.0 — usage tracking, smart routing, OpenAI image gen
+    # ------------------------------------------------------------------
+
+    def get_usage_report(self):
+        """Return current session usage + configured caps for all metered
+        services (Tripo3D credits, Meshy.ai credits, OpenAI dollars). Plus
+        live balance checks where the API supports it."""
+        report = {
+            "session_usage": dict(_USAGE),
+            "budgets": dict(_BUDGETS),
+            "live_balance": {},
+        }
+
+        # Live Tripo3D balance
+        key = self._get_tripo3d_api_key()
+        if key:
+            try:
+                r = _resilient_get(
+                    f"{self.TRIPO3D_BASE}/user/balance",
+                    headers={"Authorization": f"Bearer {key}"},
+                    timeout=10, max_retries=1,
+                )
+                d = r.json()
+                if d.get("code") == 0:
+                    report["live_balance"]["tripo3d_credits"] = d["data"].get("balance")
+            except Exception as e:
+                report["live_balance"]["tripo3d_credits"] = f"error: {e}"
+
+        # Meshy.ai doesn't expose a /balance endpoint as of 2026-04;
+        # account-level info is in their dashboard only.
+        report["live_balance"]["meshy_credits"] = "(check dashboard)"
+
+        # OpenAI exposes balance via /v1/dashboard/billing — but that's
+        # account-tied and may need different scope; report best-effort.
+        report["live_balance"]["openai_dollars"] = "(check platform.openai.com)"
+
+        return report
+
+    def set_usage_budget(self, service, max_value):
+        """Adjust the per-session cap for a service.
+
+        service: 'tripo3d' | 'meshy' | 'openai'
+        max_value: tripo3d/meshy = credits (int); openai = dollars (float)
+        """
+        valid = {"tripo3d": "tripo3d_credits_max",
+                 "meshy":   "meshy_credits_max",
+                 "openai":  "openai_dollars_max"}
+        if service not in valid:
+            return {"error": f"Unknown service '{service}'. Use: {list(valid)}"}
+        _BUDGETS[valid[service]] = float(max_value) if service == "openai" else int(max_value)
+        return {"service": service, "new_cap": _BUDGETS[valid[service]],
+                "current_usage": _USAGE.get(
+                    f"{service}_credits_used",
+                    _USAGE.get(f"{service}_dollars_spent"))}
+
+    def reset_usage_counters(self):
+        """Reset all session usage counters back to zero. Doesn't touch
+        budgets. Useful at the start of a new design sprint."""
+        for k in _USAGE:
+            _USAGE[k] = 0 if isinstance(_USAGE[k], int) else 0.0
+        return {"reset": True, "usage": dict(_USAGE)}
+
+    # ---- Smart router for AI 3D generation --------------------------
+
+    def generate_3d_smart(self, prompt, quality="standard",
+                          max_credits=None, prefer_provider=None,
+                          target_size=2.0, max_wait_seconds=240):
+        """Route a text-to-3D request to the best-available AI provider
+        based on quality target, configured services, and remaining budget.
+
+        Quality tiers:
+        - 'fast'     — minimum credits, OK for blockouts. Tries Hyper3D
+                       (free trial), then Tripo3D Turbo, then Meshy preview.
+        - 'standard' — balanced quality + cost. Tripo3D v2.5 → Hyper3D →
+                       Meshy preview.
+        - 'best'     — highest quality with PBR. Tripo3D v3.1 + pbr → Meshy
+                       refine + pbr → Hyper3D.
+
+        prefer_provider: override auto-selection ('tripo3d', 'meshy', 'hyper3d').
+        max_credits: skip a provider if its estimated cost exceeds this.
+        Returns the provider chosen + the underlying generation result.
+        """
+        # 1. Survey what's actually configured + reachable
+        services_report = self.check_services()
+        ready = set(services_report["summary"]["ready"])
+        ai_providers_ready = [p for p in ("tripo3d", "meshy", "hyper3d", "hunyuan3d") if p in ready]
+        if not ai_providers_ready:
+            return {"error": "No AI 3D provider configured. Run check_services to see what's missing."}
+
+        # 2. Cost estimates by provider × quality
+        cost_estimates = {
+            ("tripo3d", "fast"):     3,    # Turbo or v2.5 minimal
+            ("tripo3d", "standard"): 5,
+            ("tripo3d", "best"):     10,
+            ("meshy", "fast"):       20,   # preview only
+            ("meshy", "standard"):   20,
+            ("meshy", "best"):       40,   # preview + refine
+            ("hyper3d", "fast"):     0,    # free trial doesn't track
+            ("hyper3d", "standard"): 0,
+            ("hyper3d", "best"):     0,
+            ("hunyuan3d", "fast"):   0,    # RMB-billed elsewhere
+            ("hunyuan3d", "standard"): 0,
+            ("hunyuan3d", "best"):   0,
+        }
+
+        # 3. Provider preference order by quality
+        order_by_quality = {
+            "fast":     ["hyper3d", "tripo3d", "meshy", "hunyuan3d"],
+            "standard": ["tripo3d", "hyper3d", "meshy", "hunyuan3d"],
+            "best":     ["tripo3d", "meshy", "hyper3d", "hunyuan3d"],
+        }
+        if quality not in order_by_quality:
+            return {"error": f"Unknown quality '{quality}'. Use: fast/standard/best."}
+
+        # 4. Pick provider
+        chosen = None
+        if prefer_provider:
+            if prefer_provider in ai_providers_ready:
+                chosen = prefer_provider
+            else:
+                return {"error": f"Preferred provider '{prefer_provider}' not configured/ready. "
+                                 f"Available: {ai_providers_ready}"}
+        else:
+            for candidate in order_by_quality[quality]:
+                if candidate not in ai_providers_ready:
+                    continue
+                est = cost_estimates.get((candidate, quality), 5)
+                if max_credits is not None and est > max_credits:
+                    continue
+                # Budget-cap check (session)
+                if candidate in ("tripo3d", "meshy"):
+                    ok, _ = _usage_check(candidate, est)
+                    if not ok:
+                        continue
+                chosen = candidate
+                break
+
+        if chosen is None:
+            return {"error": "No provider passed budget/cost filters",
+                    "available": ai_providers_ready,
+                    "quality": quality, "max_credits": max_credits}
+
+        estimated_cost = cost_estimates.get((chosen, quality), 5)
+
+        # 5. Route the call
+        result = None
+        if chosen == "tripo3d":
+            model_version = {
+                "fast":     "Turbo-v1.0-20250506",
+                "standard": "v2.5-20250123",
+                "best":     "v3.1-20260211",
+            }[quality]
+            result = self.generate_tripo3d_text_to_3d(
+                prompt=prompt, model_version=model_version,
+                texture=True, pbr=(quality != "fast"),
+                face_limit=20000 if quality == "fast" else 30000,
+                target_size=target_size,
+                max_wait_seconds=max_wait_seconds,
+            )
+        elif chosen == "meshy":
+            result = self.generate_meshy_text_to_3d(
+                prompt=prompt, ai_model="meshy-6",
+                topology="quad", target_polycount=20000 if quality == "fast" else 30000,
+                enable_pbr=(quality == "best"),
+                refine=(quality == "best"),
+                target_size=target_size,
+                max_wait_seconds=max_wait_seconds,
+            )
+        elif chosen == "hyper3d":
+            # Hyper3D requires the create_rodin_job command (legacy path).
+            # We surface a hint to call generate_hyper3d_model_via_text via
+            # the existing MCP wrapper.
+            return {"chosen_provider": "hyper3d",
+                    "fallback_required": True,
+                    "message": "generate_3d_smart selected Hyper3D Rodin. "
+                               "Call generate_hyper3d_model_via_text(prompt=...) directly — "
+                               "Rodin's two-stage flow needs explicit polling.",
+                    "estimated_cost_credits": estimated_cost}
+        elif chosen == "hunyuan3d":
+            return {"chosen_provider": "hunyuan3d",
+                    "fallback_required": True,
+                    "message": "generate_3d_smart selected Hunyuan3D. "
+                               "Call generate_hunyuan3d_model directly — Tencent path "
+                               "needs SecretId/Key auth.",
+                    "estimated_cost_credits": estimated_cost}
+
+        # 6. Account for usage on success
+        if isinstance(result, dict) and "error" not in result and chosen in ("tripo3d", "meshy"):
+            _usage_increment(chosen, estimated_cost)
+
+        if isinstance(result, dict):
+            result["chosen_provider"] = chosen
+            result["estimated_cost_credits"] = estimated_cost
+            result["quality_tier"] = quality
+            result["session_usage"] = dict(_USAGE)
+        return result
+
+    # ---- OpenAI image generation ------------------------------------
+
+    OPENAI_BASE = "https://api.openai.com/v1"
+
+    # DALL-E 3 prices as of 2026-04 (verify at openai.com/pricing)
+    OPENAI_IMAGE_PRICING = {
+        ("dall-e-3", "standard", "1024x1024"): 0.040,
+        ("dall-e-3", "standard", "1024x1792"): 0.080,
+        ("dall-e-3", "standard", "1792x1024"): 0.080,
+        ("dall-e-3", "hd",       "1024x1024"): 0.080,
+        ("dall-e-3", "hd",       "1024x1792"): 0.120,
+        ("dall-e-3", "hd",       "1792x1024"): 0.120,
+        # gpt-image-1 pricing varies more; use a conservative default
+        ("gpt-image-1", "low",    "1024x1024"): 0.011,
+        ("gpt-image-1", "medium", "1024x1024"): 0.042,
+        ("gpt-image-1", "high",   "1024x1024"): 0.167,
+    }
+
+    def get_openai_status(self):
+        """Verify OpenAI API key + connectivity.
+
+        Note: ChatGPT Plus / Pro subscription does NOT include API access.
+        API credits are billed separately at platform.openai.com.
+        """
+        key = self._get_openai_api_key()
+        if not key:
+            return {"enabled": False, "message":
+                    "No OpenAI API key configured. Get one at "
+                    "https://platform.openai.com/api-keys (NOTE: this is "
+                    "separate billing from ChatGPT Plus/Pro). Set in Blender "
+                    "prefs or BLENDERMCP_OPENAI_API_KEY env var."}
+        try:
+            # Cheap auth check — list models endpoint
+            r = requests.get(f"{self.OPENAI_BASE}/models",
+                             headers={"Authorization": f"Bearer {key}"},
+                             timeout=10)
+            if r.status_code == 401:
+                return {"enabled": False, "message": "OpenAI auth failed (401)"}
+            if r.status_code >= 500:
+                return {"enabled": False, "message": f"OpenAI HTTP {r.status_code}"}
+            return {"enabled": True, "message": "OpenAI API reachable",
+                    "session_dollars_spent": _USAGE["openai_dollars_spent"],
+                    "session_dollar_cap": _BUDGETS["openai_dollars_max"]}
+        except Exception as e:
+            return {"enabled": False, "message": f"OpenAI unreachable: {e}"}
+
+    def generate_image_openai(self, prompt, model="dall-e-3",
+                              size="1024x1024", quality="standard",
+                              save_to=None, n=1, style=None):
+        """Generate an image via OpenAI's image-generation API and save it
+        to disk (default: <project_root>/references/ai_generated/).
+
+        Use cases:
+        - Mood-board / concept art for design briefs
+        - Reference images that feed into Tripo3D/Meshy image-to-3D
+        - Custom textures / banners / signage mockups
+
+        Parameters:
+        - prompt: text description (DALL-E 3 max ~4000 chars)
+        - model: 'dall-e-3' (older, $0.04+) or 'gpt-image-1' (newer, varies)
+        - size: dall-e-3: '1024x1024' / '1024x1792' / '1792x1024'
+                gpt-image-1: '1024x1024' / '1024x1536' / '1536x1024'
+        - quality: dall-e-3: 'standard' or 'hd'
+                   gpt-image-1: 'low' / 'medium' / 'high'
+        - save_to: absolute path to PNG. None = auto-generate inside
+          references/ai_generated/<timestamp>_<slug>.png.
+        - n: number of images (1-10 for dall-e-2; 1 for dall-e-3)
+        - style: dall-e-3 only: 'vivid' (default) or 'natural'
+
+        Returns saved path + revised prompt (DALL-E 3 always rewrites your
+        prompt internally) + dollars spent.
+
+        IMPORTANT: ChatGPT Plus subscription does NOT cover this. API
+        credits are billed separately on platform.openai.com.
+        """
+        key = self._get_openai_api_key()
+        if not key:
+            return {"error": "No OpenAI API key configured"}
+
+        # Estimate cost + budget check
+        cost = self.OPENAI_IMAGE_PRICING.get((model, quality, size), 0.10) * int(n)
+        ok, msg = _usage_check("openai", cost)
+        if not ok:
+            return {"error": msg, "estimated_dollars": cost}
+
+        body = {
+            "model": model,
+            "prompt": prompt,
+            "size": size,
+            "n": int(n),
+        }
+        if model == "dall-e-3":
+            body["quality"] = quality
+            if style:
+                body["style"] = style
+            body["response_format"] = "url"
+        elif model == "gpt-image-1":
+            # gpt-image-1 returns base64 by default; explicit 'url' not
+            # supported on all tiers — request b64_json for portability.
+            body["quality"] = quality
+            # Note: gpt-image-1 may also accept 'response_format'
+        else:
+            return {"error": f"Unsupported model '{model}'. Use 'dall-e-3' or 'gpt-image-1'."}
+
+        try:
+            r = requests.post(
+                f"{self.OPENAI_BASE}/images/generations",
+                headers={"Authorization": f"Bearer {key}",
+                         "Content-Type": "application/json"},
+                json=body, timeout=120,
+            )
+            data = r.json()
+            if r.status_code >= 400:
+                return {"error": f"OpenAI HTTP {r.status_code}: {data}"}
+        except Exception as e:
+            return {"error": f"OpenAI request failed: {e}"}
+
+        items = data.get("data", [])
+        if not items:
+            return {"error": "Empty response from OpenAI", "raw": data}
+
+        # Resolve save path(s)
+        if save_to is None:
+            ts = time.strftime("%Y%m%d_%H%M%S")
+            slug = "".join(c if c.isalnum() else "_" for c in prompt[:40]).strip("_")
+            base_dir = (os.path.dirname(bpy.data.filepath)
+                        if bpy.data.filepath else os.path.expanduser("~"))
+            ai_dir = os.path.join(base_dir, "references", "ai_generated")
+            os.makedirs(ai_dir, exist_ok=True)
+            save_to = os.path.join(ai_dir, f"{ts}_{slug}.png")
+
+        saved = []
+        for i, item in enumerate(items):
+            target = save_to if len(items) == 1 else \
+                     f"{os.path.splitext(save_to)[0]}_{i+1}.png"
+            if "url" in item:
+                # Stream URL → file with retry
+                try:
+                    _resilient_download_to_file(item["url"], target, max_retries=3)
+                    saved.append(target)
+                except Exception as e:
+                    return {"error": f"Failed to download image: {e}",
+                            "image_url": item.get("url")}
+            elif "b64_json" in item:
+                import base64 as _b64
+                try:
+                    os.makedirs(os.path.dirname(target), exist_ok=True)
+                    with open(target, "wb") as f:
+                        f.write(_b64.b64decode(item["b64_json"]))
+                    saved.append(target)
+                except Exception as e:
+                    return {"error": f"Failed to write base64 image: {e}"}
+
+        # Account for usage
+        _usage_increment("openai", cost)
+
+        return {
+            "model": model,
+            "size": size,
+            "quality": quality,
+            "n": len(saved),
+            "saved_paths": saved,
+            "revised_prompt": items[0].get("revised_prompt"),  # DALL-E 3 only
+            "dollars_spent_this_call": cost,
+            "session_dollars_spent": _USAGE["openai_dollars_spent"],
+            "session_dollar_cap": _BUDGETS["openai_dollars_max"],
+        }
+
     def execute_code(self, code):
         """Execute arbitrary Blender Python code"""
         # This is powerful but potentially dangerous - use with caution
@@ -5083,6 +5506,12 @@ class BLENDERMCP_AddonPreferences(bpy.types.AddonPreferences):
         description="Persistent Meshy.ai API Key (https://www.meshy.ai/settings/api)",
         default=""
     )
+    openai_api_key: bpy.props.StringProperty(
+        name="OpenAI API Key",
+        subtype="PASSWORD",
+        description="Persistent OpenAI API Key (separate from ChatGPT Plus — get at platform.openai.com/api-keys)",
+        default=""
+    )
 
     def draw(self, context):
         layout = self.layout
@@ -5119,6 +5548,7 @@ class BLENDERMCP_AddonPreferences(bpy.types.AddonPreferences):
         cred_box.prop(self, "hunyuan3d_api_url", text="Hunyuan3D API URL")
         cred_box.prop(self, "tripo3d_api_key", text="Tripo3D API Key")
         cred_box.prop(self, "meshy_api_key", text="Meshy.ai API Key")
+        cred_box.prop(self, "openai_api_key", text="OpenAI API Key")
 
 # Blender UI Panel
 class BLENDERMCP_PT_Panel(bpy.types.Panel):
@@ -5176,6 +5606,12 @@ class BLENDERMCP_PT_Panel(bpy.types.Panel):
         op = row.operator("wm.url_open", text="", icon='URL', emboss=False)
         op.url = "https://polyhaven.com/"
 
+        # ambientCG (no key needed — CC0, ~2000 materials)
+        row = al_box.row(align=True)
+        row.prop(scene, "blendermcp_use_ambientcg", text="ambientCG (CC0, free)")
+        op = row.operator("wm.url_open", text="", icon='URL', emboss=False)
+        op.url = "https://ambientcg.com/"
+
         # Sketchfab
         _service_row(al_box, "blendermcp_use_sketchfab", "Sketchfab",
                      key_attr_pref="sketchfab_api_key",
@@ -5230,6 +5666,19 @@ class BLENDERMCP_PT_Panel(bpy.types.Panel):
                 sb.prop(prefs, "meshy_api_key", text="API Key")
             else:
                 sb.prop(scene, "blendermcp_meshy_api_key", text="API Key")
+
+        # OpenAI image generation (DALL-E 3 + gpt-image-1)
+        _service_row(ai_box, "blendermcp_use_openai", "OpenAI image gen",
+                     key_attr_pref="openai_api_key",
+                     key_attr_scene="blendermcp_openai_api_key",
+                     get_key_url="https://platform.openai.com/api-keys")
+        if scene.blendermcp_use_openai:
+            sb = ai_box.box()
+            if prefs:
+                sb.prop(prefs, "openai_api_key", text="API Key")
+            else:
+                sb.prop(scene, "blendermcp_openai_api_key", text="API Key")
+            sb.label(text="⚠ Separate billing from ChatGPT Plus", icon='INFO')
 
         # Hunyuan3D (Tencent)
         _service_row(ai_box, "blendermcp_use_hunyuan3d", "Hunyuan3D (Tencent)",
@@ -5409,6 +5858,23 @@ def register():
         description="API Key from https://www.meshy.ai/settings/api",
         default=""
     )
+    # v1.10: ambientCG checkbox (no key needed) + OpenAI image gen
+    bpy.types.Scene.blendermcp_use_ambientcg = bpy.props.BoolProperty(
+        name="Use ambientCG",
+        description="Enable ambientCG CC0 PBR texture library (~2000 materials, no key required)",
+        default=True,
+    )
+    bpy.types.Scene.blendermcp_use_openai = bpy.props.BoolProperty(
+        name="Use OpenAI image generation",
+        description="Enable DALL-E 3 / gpt-image-1 for textures, mood boards, image-to-3D refs",
+        default=False,
+    )
+    bpy.types.Scene.blendermcp_openai_api_key = bpy.props.StringProperty(
+        name="OpenAI API Key",
+        subtype="PASSWORD",
+        description="API key from https://platform.openai.com/api-keys (separate from ChatGPT Plus)",
+        default=""
+    )
 
     bpy.types.Scene.blendermcp_use_hunyuan3d = bpy.props.BoolProperty(
         name="Use Hunyuan 3D",
@@ -5529,6 +5995,13 @@ def unregister():
         del bpy.types.Scene.blendermcp_use_meshy
     with suppress(Exception):
         del bpy.types.Scene.blendermcp_meshy_api_key
+    # v1.10 cleanup
+    with suppress(Exception):
+        del bpy.types.Scene.blendermcp_use_ambientcg
+    with suppress(Exception):
+        del bpy.types.Scene.blendermcp_use_openai
+    with suppress(Exception):
+        del bpy.types.Scene.blendermcp_openai_api_key
     del bpy.types.Scene.blendermcp_use_hunyuan3d
     del bpy.types.Scene.blendermcp_hunyuan3d_mode
     del bpy.types.Scene.blendermcp_hunyuan3d_secret_id

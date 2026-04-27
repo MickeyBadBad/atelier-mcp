@@ -1447,6 +1447,191 @@ def generate_meshy_image_to_3d(
         return f"Error generating Meshy.ai image-to-3D: {str(e)}"
 
 
+# --------------------------------------------------------------------------
+# v1.10.0 — usage tracking, smart routing, OpenAI image gen
+# --------------------------------------------------------------------------
+
+@mcp.tool()
+def get_usage_report(ctx: Context) -> str:
+    """
+    Show current session usage + per-service caps + live API balance where
+    supported. Returns counters for Tripo3D credits, Meshy.ai credits, and
+    OpenAI dollars spent. Helpful before kicking off expensive batch
+    generations.
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("get_usage_report", {})
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error getting usage report: {str(e)}")
+        return f"Error getting usage report: {str(e)}"
+
+
+@mcp.tool()
+def set_usage_budget(ctx: Context, service: str, max_value: float) -> str:
+    """
+    Adjust the per-session cap for a metered service.
+
+    Parameters:
+    - service: 'tripo3d' | 'meshy' | 'openai'
+    - max_value: tripo3d/meshy = credits (int); openai = dollars (float)
+
+    Defaults: tripo3d=500 credits (~$5), meshy=200 credits, openai=$5.00.
+    Counters reset when the addon is re-registered (Disable → Enable).
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("set_usage_budget", {
+            "service": service, "max_value": max_value,
+        })
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error setting usage budget: {str(e)}")
+        return f"Error setting usage budget: {str(e)}"
+
+
+@mcp.tool()
+def reset_usage_counters(ctx: Context) -> str:
+    """Reset all session usage counters back to zero. Useful at the start
+    of a new design sprint. Doesn't change configured budget caps."""
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("reset_usage_counters", {})
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error resetting usage counters: {str(e)}")
+        return f"Error resetting usage counters: {str(e)}"
+
+
+@mcp.tool()
+def generate_3d_smart(
+    ctx: Context,
+    prompt: str,
+    quality: str = "standard",
+    max_credits: int = None,
+    prefer_provider: str = None,
+    target_size: float = 2.0,
+    max_wait_seconds: int = 240,
+) -> str:
+    """
+    Auto-route a text-to-3D request to the best AI provider available
+    based on quality target, configured services, and remaining budget.
+
+    Quality tiers:
+    - 'fast'     — minimum credits, OK for blockouts. Tries Hyper3D
+                   (free trial) → Tripo3D Turbo → Meshy preview.
+                   Estimated cost: 0-3 credits.
+    - 'standard' — balanced quality + cost. Tripo3D v2.5 → Hyper3D →
+                   Meshy preview. Estimated cost: 5-20 credits.
+    - 'best'     — highest quality with PBR. Tripo3D v3.1 + pbr → Meshy
+                   refine → Hyper3D. Estimated cost: 10-40 credits.
+
+    Provider selection respects the per-session budget cap. If the
+    estimated cost would push you over your `set_usage_budget()` ceiling,
+    that provider is skipped and the next-best one is tried.
+
+    Parameters:
+    - prompt: text description
+    - quality: 'fast' / 'standard' (default) / 'best'
+    - max_credits: per-call cap; skip providers whose estimate exceeds this
+    - prefer_provider: 'tripo3d' | 'meshy' | 'hyper3d' to override auto-select
+    - target_size: rescale imported model so largest dim = this many meters
+    - max_wait_seconds: polling timeout
+
+    Returns the chosen provider + the underlying generation result.
+    Use this when you don't care which AI service runs the call — you
+    care about the result + cost discipline.
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("generate_3d_smart", {
+            "prompt": prompt, "quality": quality,
+            "max_credits": max_credits,
+            "prefer_provider": prefer_provider,
+            "target_size": target_size,
+            "max_wait_seconds": max_wait_seconds,
+        })
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error in generate_3d_smart: {str(e)}")
+        return f"Error in generate_3d_smart: {str(e)}"
+
+
+@mcp.tool()
+def get_openai_status(ctx: Context) -> str:
+    """
+    Verify OpenAI API key + connectivity for image generation
+    (DALL-E 3 / gpt-image-1).
+
+    IMPORTANT: ChatGPT Plus / Pro subscription does NOT include API
+    access. API credits are billed separately at platform.openai.com.
+
+    Set BLENDERMCP_OPENAI_API_KEY env var or paste in Blender prefs.
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("get_openai_status", {})
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error checking OpenAI status: {str(e)}")
+        return f"Error checking OpenAI status: {str(e)}"
+
+
+@mcp.tool()
+def generate_image_openai(
+    ctx: Context,
+    prompt: str,
+    model: str = "dall-e-3",
+    size: str = "1024x1024",
+    quality: str = "standard",
+    save_to: str = None,
+    n: int = 1,
+    style: str = None,
+) -> str:
+    """
+    Generate an image via OpenAI's image-generation API and save to disk.
+
+    Use cases for design workflows:
+    - Mood boards / concept art for client presentations
+    - Reference images that feed Tripo3D/Meshy image-to-3D
+    - Custom textures, signage mockups, banner art
+
+    Cost (DALL-E 3 standard 1024x1024 = $0.040). gpt-image-1 ranges
+    $0.011 - $0.167 per image depending on quality. Each call increments
+    the session $ counter and respects the openai dollar budget cap.
+
+    Parameters:
+    - prompt: text description (DALL-E 3 max ~4000 chars)
+    - model: 'dall-e-3' (older, $0.04+) or 'gpt-image-1' (newer, varies)
+    - size: dall-e-3: '1024x1024' | '1024x1792' | '1792x1024'
+            gpt-image-1: '1024x1024' | '1024x1536' | '1536x1024'
+    - quality: dall-e-3: 'standard' | 'hd'
+               gpt-image-1: 'low' | 'medium' | 'high'
+    - save_to: absolute PNG path. None = auto into
+               <blend-dir>/references/ai_generated/<timestamp>_<slug>.png
+    - n: number of images (DALL-E 3 limited to 1)
+    - style: dall-e-3 only: 'vivid' (default) or 'natural'
+
+    Returns saved path + revised prompt (DALL-E 3 always rewrites
+    your prompt internally) + dollars spent.
+
+    NOTE: ChatGPT Plus subscription does NOT cover this. Separate API
+    credits required at platform.openai.com.
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("generate_image_openai", {
+            "prompt": prompt, "model": model, "size": size,
+            "quality": quality, "save_to": save_to,
+            "n": n, "style": style,
+        })
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error generating OpenAI image: {str(e)}")
+        return f"Error generating OpenAI image: {str(e)}"
+
+
 @mcp.tool()
 def check_services(ctx: Context) -> str:
     """

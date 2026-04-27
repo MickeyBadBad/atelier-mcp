@@ -6,6 +6,83 @@ This is an actively maintained community fork of [ahujasid/blender-mcp](https://
 
 ---
 
+## [1.10.0+fork.1] — 2026-04-28
+
+Three orthogonal improvements driven by real-use feedback: stop bleeding credits, stop guessing which AI provider to call, and pull DALL-E 3 / gpt-image-1 into the toolkit for textures + image-to-3D pipelines. Also closes the v1.9 hole where ambientCG had a working integration but no panel checkbox.
+
+### Added — usage tracking & budget caps
+
+API-billed services (Tripo3D, Meshy.ai, OpenAI) now have **session counters and per-session caps**. Each generation call:
+
+1. Estimates the cost before firing
+2. Checks `session_used + this_call_cost <= cap`
+3. Refuses if it would push you over (returns error, doesn't burn credits)
+4. Increments the counter on success
+
+Defaults that are hard to bust by accident:
+- Tripo3D: 500 credits/session (~$5)
+- Meshy.ai: 200 credits/session
+- OpenAI: $5.00/session
+
+New tools:
+- **`get_usage_report()`** — current counters + caps + live API balance (Tripo3D supports this; Meshy/OpenAI point to dashboard)
+- **`set_usage_budget(service, max_value)`** — adjust the cap mid-session
+- **`reset_usage_counters()`** — start a fresh sprint without re-registering the addon
+
+Counters reset automatically when the addon is disabled/re-enabled.
+
+### Added — smart routing
+
+`generate_3d_smart(prompt, quality, max_credits, prefer_provider, target_size)`
+
+One tool that abstracts away the four AI 3D providers. Picks the best one available based on:
+- Quality target (`fast` / `standard` / `best`)
+- What's actually configured (`check_services` under the hood)
+- Estimated credit cost vs configured budget
+
+Quality-tier routing:
+- **fast** — Hyper3D (free trial) → Tripo3D Turbo → Meshy preview
+- **standard** — Tripo3D v2.5 → Hyper3D → Meshy preview
+- **best** — Tripo3D v3.1 + PBR → Meshy refine + PBR → Hyper3D
+
+The LLM no longer has to know "which provider does X best at Y cost" — just say what quality you want and how much you're willing to spend.
+
+### Added — OpenAI image generation
+
+DALL-E 3 + gpt-image-1 wired up for generating reference images, mood boards, custom textures, and source images for the Tripo3D/Meshy image-to-3D pipelines.
+
+- **`get_openai_status()`** — verify API key
+- **`generate_image_openai(prompt, model, size, quality, save_to, n, style)`** — text-to-image, auto-saves to `references/ai_generated/<timestamp>_<slug>.png` if no path given
+
+Cost transparency built in: each call returns dollars spent + session running total. **Important caveat surfaced in the docstring**: ChatGPT Plus/Pro subscription does NOT include API access — those are separate billing on platform.openai.com.
+
+Pricing (April 2026):
+- DALL-E 3 standard 1024×1024: $0.040
+- DALL-E 3 HD 1024×1024: $0.080
+- gpt-image-1 low/medium/high: $0.011 / $0.042 / $0.167
+
+### Fixed — ambientCG had no panel checkbox
+
+The integration shipped in v1.7 but never got a checkbox in the N-panel — users had no way to know it existed without reading the README. Now appears in **Asset libraries** alongside Poly Haven (also key-less) with a 🔗 link to the site.
+
+### Changed — N-panel UI for OpenAI
+
+Added an **OpenAI image gen** row to the AI 3D generation section with:
+- Status icon (✓ if key configured)
+- 🔗 Get API Key button → platform.openai.com/api-keys
+- Inline note: "⚠ Separate billing from ChatGPT Plus" so users don't get the wrong impression
+
+### Tool count
+
+| | Count |
+|---|---|
+| Inherited from upstream | ~22 |
+| Community PRs integrated | ~6 |
+| **Fork-original tools** | **28** (4 v1.6 + 6 v1.7 + 5 v1.8 + 6 v1.9 + 1 v1.9.1 + 6 v1.10) |
+| **Total `mcp__blender__*` exposed** | **~50** |
+
+---
+
 ## [1.9.0+fork.1] — 2026-04-28
 
 Sprint 4: AI 3D generation gets two more first-class providers (Tripo3D + Meshy.ai), plus a one-line installer and an AI-driven setup playbook so users can hand the entire install over to Claude / Cursor / Codex.

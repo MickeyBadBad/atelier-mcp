@@ -27,8 +27,11 @@ This fork ships those fixes plus design-workflow tools targeted at interior desi
 | ambientCG integration (v1.7) | This fork | CC0 PBR library (~2000 materials) — fills PolyHaven fabric/leather/carpet gaps |
 | Resilient downloads (v1.7) | This fork | Retry + Range-resume — Sketchfab IncompleteRead drops handled transparently |
 | 5 geometry / IO tools (v1.8) | This fork | `scatter_on_surface`, `array_duplicate` (linear+radial), `curve_extrude_profile`, `quick_export` (GLB/FBX/OBJ/USD), `set_world_hdri_rotation` |
-| **Tripo3D + Meshy.ai integrations (v1.9)** | **This fork** | **6 sync tools — text-to-3D and image-to-3D for both services, with auto-polling and auto-import** |
-| **One-line installer + AI-driven setup (v1.9)** | **This fork** | **`curl ... \| bash` and an `INSTALL_AI.md` playbook for AI agents to install end-to-end** |
+| Tripo3D + Meshy.ai integrations (v1.9) | This fork | 6 sync tools — text-to-3D and image-to-3D for both services, with auto-polling and auto-import |
+| One-line installer + AI-driven setup (v1.9) | This fork | `curl ... \| bash` and an `INSTALL_AI.md` playbook for AI agents to install end-to-end |
+| **Usage tracking + budget caps (v1.10)** | **This fork** | **Session counters + per-call cost estimates + refuse-before-burn for Tripo3D / Meshy / OpenAI** |
+| **Smart routing for AI 3D (v1.10)** | **This fork** | **`generate_3d_smart(prompt, quality)` — picks the best of 4 providers based on quality target + configured services + remaining budget** |
+| **OpenAI image gen (v1.10)** | **This fork** | **DALL-E 3 + gpt-image-1 for textures, mood boards, image-to-3D refs (separate API billing — not covered by ChatGPT Plus)** |
 | API-credential persistence | [#235](https://github.com/ahujasid/blender-mcp/pull/235) | Sketchfab/Hyper3D tokens lost on Blender restart |
 | Visual grounding verification | [#230](https://github.com/ahujasid/blender-mcp/pull/230) | "Is this furniture actually on the floor?" |
 | Distinguish addon vs transport errors | [#228](https://github.com/ahujasid/blender-mcp/pull/228) | "Communication error" misdiagnosis |
@@ -272,7 +275,13 @@ That's it — your AI client should now show a hammer 🔨 icon with `mcp__blend
 ### AI 3D generation
 | Tool | What it does |
 |---|---|
-| **`generate_tripo3d_text_to_3d`** | 🆕 v1.9 — text-to-3D via [Tripo3D](https://www.tripo3d.ai/) (sync, auto-polling, full PBR) |
+| **`generate_3d_smart`** | 🆕 v1.10 — auto-pick best provider by quality tier + budget. **Use this when you don't care which provider runs.** |
+| **`get_usage_report`** | 🆕 v1.10 — current session credits/$ spent + caps + live Tripo3D balance |
+| **`set_usage_budget`** | 🆕 v1.10 — adjust per-session cap for Tripo3D / Meshy / OpenAI |
+| **`reset_usage_counters`** | 🆕 v1.10 — start a fresh sprint without re-registering addon |
+| **`generate_image_openai`** | 🆕 v1.10 — DALL-E 3 / gpt-image-1 → PNG (refs, textures, mood boards) |
+| **`get_openai_status`** | 🆕 v1.10 — check OpenAI API key + connectivity |
+| `generate_tripo3d_text_to_3d` | v1.9 — text-to-3D via [Tripo3D](https://www.tripo3d.ai/) (sync, auto-polling, full PBR) |
 | **`generate_tripo3d_image_to_3d`** | 🆕 v1.9 — image-to-3D via Tripo3D (image_url) |
 | **`generate_meshy_text_to_3d`** | 🆕 v1.9 — text-to-3D via [Meshy.ai](https://www.meshy.ai/) (preview + refine, sync) |
 | **`generate_meshy_image_to_3d`** | 🆕 v1.9 — image-to-3D via Meshy.ai (URL or base64 data URI) |
