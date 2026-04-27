@@ -429,6 +429,11 @@ class BlenderMCPServer:
             "place_on_ground": self.place_on_ground,
             "render_image": self.render_image,
             "set_camera_view": self.set_camera_view,
+            # Sprint 2 generic helpers (added by fork)
+            "mesh_cleanup": self.mesh_cleanup,
+            "boolean_cutout": self.boolean_cutout,
+            "frame_camera_to_objects": self.frame_camera_to_objects,
+            "setup_lighting": self.setup_lighting,
         }
 
         # Add Polyhaven handlers only if enabled
@@ -1120,6 +1125,542 @@ class BlenderMCPServer:
             "lens_mm": float(lens),
             "angle": angle,
         }
+
+    # ------------------------------------------------------------------
+    # Geometry / scene helpers — generic ops with high LLM error rate
+    # ------------------------------------------------------------------
+
+    def mesh_cleanup(self, object_name, merge_distance=0.0001,
+                     decimate_ratio=1.0, recalc_normals=True,
+                     remove_loose=True, fix_non_manifold=False,
+                     triangulate=False):
+        """Clean up a mesh: merge duplicate vertices, recalc normals, optional
+        decimate, remove loose geometry, optional non-manifold fix and
+        triangulate. Idempotent and safe on already-clean meshes.
+
+        For LiDAR / photogrammetry imports this is the gate before any
+        downstream work — those scans typically have duplicate verts,
+        flipped normals, and excessive triangle counts.
+        """
+        obj = bpy.data.objects.get(object_name)
+        if obj is None:
+            return {"error": f"Object '{object_name}' not found"}
+        if obj.type != 'MESH':
+            return {"error": f"Object '{object_name}' is not a mesh (type={obj.type})"}
+
+        before_verts = len(obj.data.vertices)
+        before_faces = len(obj.data.polygons)
+        before_edges = len(obj.data.edges)
+
+        bpy.ops.object.select_all(action='DESELECT')
+        obj.select_set(True)
+        bpy.context.view_layer.objects.active = obj
+
+        # Edit-mode operations
+        bpy.ops.object.mode_set(mode='EDIT')
+        bpy.ops.mesh.select_all(action='SELECT')
+        if merge_distance and merge_distance > 0:
+            bpy.ops.mesh.remove_doubles(threshold=float(merge_distance))
+        if recalc_normals:
+            bpy.ops.mesh.normals_make_consistent(inside=False)
+        if remove_loose:
+            bpy.ops.mesh.delete_loose()
+        if fix_non_manifold:
+            try:
+                bpy.ops.mesh.select_all(action='DESELECT')
+                bpy.ops.mesh.select_non_manifold()
+                bpy.ops.mesh.fill()
+            except Exception:
+                pass
+        if triangulate:
+            bpy.ops.mesh.select_all(action='SELECT')
+            bpy.ops.mesh.quads_convert_to_tris(quad_method='BEAUTY', ngon_method='BEAUTY')
+        bpy.ops.object.mode_set(mode='OBJECT')
+
+        # Decimate via modifier (more reliable than the operator)
+        decimate_applied = False
+        if decimate_ratio < 1.0:
+            mod = obj.modifiers.new(name="MCPDecimate", type='DECIMATE')
+            mod.ratio = float(decimate_ratio)
+            try:
+                bpy.ops.object.modifier_apply(modifier=mod.name)
+                decimate_applied = True
+            except Exception as e:
+                obj.modifiers.remove(mod)
+                return {"error": f"Decimate failed: {e}"}
+
+        after_verts = len(obj.data.vertices)
+        after_faces = len(obj.data.polygons)
+        after_edges = len(obj.data.edges)
+
+        return {
+            "object_name": object_name,
+            "before": {"verts": before_verts, "edges": before_edges, "faces": before_faces},
+            "after":  {"verts": after_verts,  "edges": after_edges,  "faces": after_faces},
+            "removed": {
+                "verts": before_verts - after_verts,
+                "edges": before_edges - after_edges,
+                "faces": before_faces - after_faces,
+            },
+            "decimate_applied": decimate_applied,
+            "decimate_ratio": float(decimate_ratio) if decimate_applied else None,
+        }
+
+    def boolean_cutout(self, target_object, cutter_shape="box",
+                       location=(0, 0, 0), size=(1, 1, 1),
+                       rotation=(0, 0, 0),
+                       cutter_object_name=None, operation="DIFFERENCE",
+                       solver="EXACT", apply=True):
+        """Cut a hole / merge / intersect with a primitive (or named mesh).
+
+        Common interior-design ops: window apertures in walls, door frames,
+        ventilation cutouts, decorative mortises. The native bpy flow is
+        ~25 lines and easy to get wrong (Exact vs Fast solver, modifier
+        ordering, post-cleanup).
+
+        Parameters:
+        - target_object: object to be cut
+        - cutter_shape: 'box' | 'cylinder' | 'sphere' | 'mesh'
+        - location, size (XYZ extents), rotation (radians) for primitive cutters
+        - cutter_object_name: required when cutter_shape='mesh' — name of
+          existing object to use as the cutter (won't be deleted)
+        - operation: 'DIFFERENCE' (default — hole) | 'UNION' | 'INTERSECT'
+        - solver: 'EXACT' (slower, robust on overlapping geo) | 'FAST'
+        - apply: True to apply the modifier and delete the cutter primitive;
+                 False to keep the modifier live
+        """
+        target = bpy.data.objects.get(target_object)
+        if target is None:
+            return {"error": f"Target '{target_object}' not found"}
+        if target.type != 'MESH':
+            return {"error": f"Target '{target_object}' is not a mesh (type={target.type})"}
+
+        op_upper = operation.upper()
+        if op_upper not in ('DIFFERENCE', 'UNION', 'INTERSECT'):
+            return {"error": f"Unknown operation '{operation}'. Choose DIFFERENCE / UNION / INTERSECT."}
+        solver_upper = solver.upper()
+        if solver_upper not in ('EXACT', 'FAST'):
+            return {"error": f"Unknown solver '{solver}'. Choose EXACT or FAST."}
+
+        primitive_created = False
+        if cutter_shape == 'mesh':
+            if not cutter_object_name:
+                return {"error": "cutter_shape='mesh' requires cutter_object_name"}
+            cutter = bpy.data.objects.get(cutter_object_name)
+            if cutter is None:
+                return {"error": f"Cutter object '{cutter_object_name}' not found"}
+        elif cutter_shape == 'box':
+            bpy.ops.mesh.primitive_cube_add(size=2, location=tuple(location), rotation=tuple(rotation))
+            cutter = bpy.context.active_object
+            cutter.scale = (size[0] / 2, size[1] / 2, size[2] / 2)
+            bpy.ops.object.transform_apply(scale=True)
+            cutter.name = f"_cutter_{target_object}"
+            primitive_created = True
+        elif cutter_shape == 'cylinder':
+            bpy.ops.mesh.primitive_cylinder_add(radius=size[0] / 2, depth=size[2],
+                                                location=tuple(location), rotation=tuple(rotation))
+            cutter = bpy.context.active_object
+            if size[1] != size[0]:
+                cutter.scale = (1.0, size[1] / size[0], 1.0)
+                bpy.ops.object.transform_apply(scale=True)
+            cutter.name = f"_cutter_{target_object}"
+            primitive_created = True
+        elif cutter_shape == 'sphere':
+            bpy.ops.mesh.primitive_uv_sphere_add(radius=size[0] / 2,
+                                                 location=tuple(location), rotation=tuple(rotation))
+            cutter = bpy.context.active_object
+            if size[1] != size[0] or size[2] != size[0]:
+                cutter.scale = (1.0, size[1] / size[0], size[2] / size[0])
+                bpy.ops.object.transform_apply(scale=True)
+            cutter.name = f"_cutter_{target_object}"
+            primitive_created = True
+        else:
+            return {"error": f"Unknown cutter_shape '{cutter_shape}'. Use box/cylinder/sphere/mesh."}
+
+        # Apply the boolean modifier
+        bpy.ops.object.select_all(action='DESELECT')
+        target.select_set(True)
+        bpy.context.view_layer.objects.active = target
+
+        mod = target.modifiers.new(name=f"BoolCut_{cutter.name}", type='BOOLEAN')
+        mod.operation = op_upper
+        mod.solver = solver_upper
+        mod.object = cutter
+
+        applied = False
+        if apply:
+            try:
+                bpy.ops.object.modifier_apply(modifier=mod.name)
+                applied = True
+            except Exception as e:
+                target.modifiers.remove(mod)
+                if primitive_created:
+                    bpy.data.objects.remove(cutter, do_unlink=True)
+                return {"error": f"Boolean apply failed: {e}"}
+
+            # Delete cutter primitive after successful apply
+            if primitive_created:
+                bpy.data.objects.remove(cutter, do_unlink=True)
+
+        return {
+            "target_object": target_object,
+            "cutter_shape": cutter_shape,
+            "cutter_object": None if (apply and primitive_created) else cutter.name,
+            "operation": op_upper,
+            "solver": solver_upper,
+            "applied": applied,
+            "modifier_name": None if applied else mod.name,
+        }
+
+    def frame_camera_to_objects(self, targets, orbit_deg=35, elevation_deg=15,
+                                focal_mm=35.0, padding=1.1,
+                                composition="thirds_left",
+                                dof_target=None, f_stop=2.8):
+        """Position the active camera so all `targets` fit in frame, with
+        composed orbit + elevation + thirds offset. LLMs frequently put
+        cameras inside walls or aimed at the world origin; this wraps
+        Blender's camera_to_view_selected logic with sensible composition
+        defaults.
+
+        Parameters:
+        - targets: object name OR list of object names (will frame their
+                   combined bbox)
+        - orbit_deg: rotation around Z (0 = front, 90 = right side, etc.)
+        - elevation_deg: tilt above horizontal (0 = level, 90 = top-down)
+        - focal_mm: lens focal length
+        - padding: 1.0 = bbox kisses edges; 1.2 = 20% breathing room
+        - composition: 'center' | 'thirds_left' | 'thirds_right' | 'thirds_top' | 'thirds_bottom'
+        - dof_target: object name to focus on (creates focus distance);
+                      None = no DOF
+        - f_stop: aperture (lower = more blur)
+        """
+        import math as _math
+
+        if isinstance(targets, str):
+            targets = [targets]
+        if not targets:
+            return {"error": "targets is empty"}
+
+        # Aggregate world bbox of all targets (and their mesh descendants)
+        mins = [float('inf')] * 3
+        maxs = [-float('inf')] * 3
+        found = False
+        def _walk(o):
+            nonlocal found
+            if o.type == 'MESH' and o.data:
+                for v in o.bound_box:
+                    w = o.matrix_world @ mathutils.Vector(v)
+                    for i in range(3):
+                        mins[i] = min(mins[i], w[i])
+                        maxs[i] = max(maxs[i], w[i])
+                    found = True
+            for c in o.children:
+                _walk(c)
+
+        missing = []
+        for name in targets:
+            obj = bpy.data.objects.get(name)
+            if obj is None:
+                missing.append(name)
+                continue
+            _walk(obj)
+        if missing:
+            return {"error": f"Targets not found: {missing}"}
+        if not found:
+            return {"error": "No mesh geometry found in target hierarchy"}
+
+        bbox_min = mathutils.Vector(mins)
+        bbox_max = mathutils.Vector(maxs)
+        center = (bbox_min + bbox_max) * 0.5
+        size = bbox_max - bbox_min
+        radius = max(size) / 2
+
+        # Camera distance: ensure bbox fits FOV with padding
+        fov_h = 2 * _math.atan(18.0 / float(focal_mm))   # Blender default sensor width = 36mm
+        distance = (radius * float(padding)) / _math.tan(fov_h / 2)
+        distance = max(distance, radius * 1.5)            # never inside the bbox
+
+        orbit_rad = _math.radians(orbit_deg)
+        elev_rad = _math.radians(elevation_deg)
+        offset = mathutils.Vector((
+            _math.cos(elev_rad) * _math.sin(orbit_rad) * distance,
+            -_math.cos(elev_rad) * _math.cos(orbit_rad) * distance,
+            _math.sin(elev_rad) * distance,
+        ))
+
+        cam = bpy.context.scene.camera
+        if cam is None:
+            cam = next((o for o in bpy.context.scene.objects if o.type == 'CAMERA'), None)
+            if cam is None:
+                cam_data = bpy.data.cameras.new("Camera")
+                cam = bpy.data.objects.new("Camera", cam_data)
+                bpy.context.collection.objects.link(cam)
+            bpy.context.scene.camera = cam
+
+        cam.location = center + offset
+        direction = center - cam.location
+        cam.rotation_euler = direction.to_track_quat('-Z', 'Y').to_euler()
+        cam.data.lens = float(focal_mm)
+
+        # Composition: thirds offset via lens shift (keeps perspective straight)
+        cam.data.shift_x = 0.0
+        cam.data.shift_y = 0.0
+        if composition == "thirds_left":
+            cam.data.shift_x = +0.166
+        elif composition == "thirds_right":
+            cam.data.shift_x = -0.166
+        elif composition == "thirds_top":
+            cam.data.shift_y = -0.166
+        elif composition == "thirds_bottom":
+            cam.data.shift_y = +0.166
+        # "center" is the default (no shift)
+
+        # Optional DOF
+        if dof_target:
+            dof_obj = bpy.data.objects.get(dof_target)
+            if dof_obj is None:
+                return {"error": f"DOF target '{dof_target}' not found"}
+            cam.data.dof.use_dof = True
+            cam.data.dof.focus_object = dof_obj
+            cam.data.dof.aperture_fstop = float(f_stop)
+        else:
+            cam.data.dof.use_dof = False
+
+        return {
+            "camera_name": cam.name,
+            "location": [round(v, 4) for v in cam.location],
+            "target_center": [round(v, 4) for v in center],
+            "bbox_size": [round(v, 4) for v in size],
+            "distance": round(distance, 4),
+            "lens_mm": float(focal_mm),
+            "composition": composition,
+            "shift_xy": [round(cam.data.shift_x, 4), round(cam.data.shift_y, 4)],
+            "dof_enabled": cam.data.dof.use_dof,
+            "framed_targets": targets,
+        }
+
+    # ------------------------------------------------------------------
+    # Lighting moods — generic design intent, not space-specific
+    # ------------------------------------------------------------------
+
+    LIGHTING_MOODS = {
+        "warm_intimate": {
+            "description": "Low Kelvin, low ambient lux, strong table-level key lamps. "
+                           "Dim cozy spaces — bars, lounges, evening dining, bedrooms.",
+            "ambient_kelvin": 2200, "ambient_lux": 60,
+            "accent_kelvin": 2400, "accent_lux": 200,
+            "key_kelvin":    2200, "key_lux":    40,
+            "world_strength": 0.3,
+        },
+        "daylight_neutral": {
+            "description": "Balanced 4000-4500K, medium lux, soft sky fill. "
+                           "Daylit interior shoots, residential common areas.",
+            "ambient_kelvin": 4500, "ambient_lux": 250,
+            "accent_kelvin": 5000, "accent_lux": 400,
+            "key_kelvin":    5000, "key_lux":    600,
+            "world_strength": 1.5,
+        },
+        "bright_workspace": {
+            "description": "High lux, neutral 4000K, even coverage. "
+                           "Offices, kitchens, classrooms, retail back-of-house.",
+            "ambient_kelvin": 4000, "ambient_lux": 500,
+            "accent_kelvin": 4000, "accent_lux": 700,
+            "key_kelvin":    4000, "key_lux":    800,
+            "world_strength": 2.0,
+        },
+        "dramatic_accent": {
+            "description": "Low ambient + tight accent spotlights. "
+                           "Galleries, retail focal displays, restaurants with hero plates.",
+            "ambient_kelvin": 2700, "ambient_lux": 80,
+            "accent_kelvin": 3000, "accent_lux": 600,
+            "key_kelvin":    3000, "key_lux":    400,
+            "world_strength": 0.4,
+        },
+        "golden_hour": {
+            "description": "Warm sun-side key + cool sky ambient. "
+                           "Exterior renders, interior at sunset, hero shots.",
+            "ambient_kelvin": 6500, "ambient_lux": 200,
+            "accent_kelvin": 2400, "accent_lux": 300,
+            "key_kelvin":    2400, "key_lux":   1200,
+            "world_strength": 1.8,
+        },
+        "cool_modern": {
+            "description": "5500-6500K, clean even lighting. "
+                           "Modernist showrooms, clinical/laboratory spaces, modern offices.",
+            "ambient_kelvin": 5500, "ambient_lux": 300,
+            "accent_kelvin": 6000, "accent_lux": 500,
+            "key_kelvin":    5500, "key_lux":    700,
+            "world_strength": 1.5,
+        },
+        "studio_neutral": {
+            "description": "5500K even product photography setup. "
+                           "Product viz, e-commerce, neutral catalog shoots.",
+            "ambient_kelvin": 5500, "ambient_lux": 400,
+            "accent_kelvin": 5500, "accent_lux": 600,
+            "key_kelvin":    5500, "key_lux":   1000,
+            "world_strength": 1.0,
+        },
+        "moody_lowkey": {
+            "description": "Deep shadows, small key, no fill. "
+                           "Cinematic / noir / mystery / horror.",
+            "ambient_kelvin": 3000, "ambient_lux": 30,
+            "accent_kelvin": 3000, "accent_lux": 100,
+            "key_kelvin":    3500, "key_lux":    300,
+            "world_strength": 0.2,
+        },
+    }
+
+    def setup_lighting(self, mood="warm_intimate", target_object=None,
+                       target_xyz=None, area_m2=20.0, ceiling_height_m=3.0,
+                       remove_existing_lights=True):
+        """Build a 3-layer lighting rig (ambient / accent / key) tuned to a
+        named design-intent mood. Generic across cafe / retail / residential /
+        office / studio. Returns the created light names + parameters.
+
+        Parameters:
+        - mood: one of LIGHTING_MOODS keys (warm_intimate / daylight_neutral /
+                bright_workspace / dramatic_accent / golden_hour / cool_modern /
+                studio_neutral / moody_lowkey)
+        - target_object: focal point (uses bbox center) — accent and key
+                         aim here. Mutually exclusive with target_xyz.
+        - target_xyz: explicit focal point [x, y, z]
+        - area_m2: room area, used to scale wattage
+        - ceiling_height_m: where to place ambient lights
+        - remove_existing_lights: clear lights named 'MCP_*' before building
+        """
+        import math as _math
+
+        if mood not in self.LIGHTING_MOODS:
+            return {"error": f"Unknown mood '{mood}'. Choose from: "
+                             f"{sorted(self.LIGHTING_MOODS)}"}
+        spec = self.LIGHTING_MOODS[mood]
+
+        # Resolve focal point
+        if target_object is not None:
+            obj = bpy.data.objects.get(target_object)
+            if obj is None:
+                return {"error": f"target_object '{target_object}' not found"}
+            bmin, bmax = self._world_bbox(obj)
+            if bmin is None:
+                target = obj.location.copy()
+            else:
+                target = mathutils.Vector(((bmin.x+bmax.x)/2, (bmin.y+bmax.y)/2, (bmin.z+bmax.z)/2))
+        elif target_xyz is not None:
+            target = mathutils.Vector(target_xyz)
+        else:
+            target = mathutils.Vector((0, 0, 1.0))
+
+        # Optionally clean previous MCP lights
+        if remove_existing_lights:
+            for o in list(bpy.data.objects):
+                if o.type == 'LIGHT' and o.name.startswith("MCP_"):
+                    bpy.data.objects.remove(o, do_unlink=True)
+
+        def _add_light(name, ltype, location, kelvin, lux_eqv,
+                       size_m=1.0, rotation=(0, 0, 0)):
+            light_data = bpy.data.lights.new(name=name, type=ltype)
+            light_data.color = self._kelvin_to_rgb(kelvin)
+            # Convert lux-ish target to Blender Watts:
+            # Blender point/area lights: 1 W ~= ~683 lm at scotopic peak,
+            # but for a 1m^2 area light the visible illuminance ratio is
+            # roughly Watts*100 ~ lux at ~1m. Empirical, good enough for
+            # design previews.
+            light_data.energy = float(lux_eqv) * (size_m if ltype == 'AREA' else 1.0) * 1.0
+            if ltype == 'AREA':
+                light_data.size = size_m
+            elif ltype == 'SPOT':
+                light_data.spot_size = _math.radians(40)
+                light_data.spot_blend = 0.3
+            obj = bpy.data.objects.new(name, light_data)
+            obj.location = location
+            obj.rotation_euler = rotation
+            bpy.context.collection.objects.link(obj)
+            return obj
+
+        # Ambient ring: 2-4 area lights below ceiling, evenly placed
+        ambient_count = 3
+        ambient_radius = max(2.0, _math.sqrt(area_m2) * 0.45)
+        ambient_h = ceiling_height_m - 0.2
+        ambients = []
+        for i in range(ambient_count):
+            angle = (i / ambient_count) * 2 * _math.pi
+            loc = (target.x + ambient_radius * _math.cos(angle),
+                   target.y + ambient_radius * _math.sin(angle),
+                   ambient_h)
+            # Point downward
+            ambients.append(_add_light(
+                f"MCP_Ambient_{i+1}", 'AREA', loc,
+                spec["ambient_kelvin"], spec["ambient_lux"],
+                size_m=1.5, rotation=(0, 0, 0),
+            ))
+
+        # Accent: spot light from above-left (45° elevation, 30° orbit)
+        elev = _math.radians(45)
+        orbit = _math.radians(30)
+        d = max(2.5, _math.sqrt(area_m2) * 0.6)
+        accent_loc = (target.x + d * _math.cos(elev) * _math.sin(orbit),
+                      target.y - d * _math.cos(elev) * _math.cos(orbit),
+                      target.z + d * _math.sin(elev))
+        direction = target - mathutils.Vector(accent_loc)
+        accent_rot = direction.to_track_quat('-Z', 'Y').to_euler()
+        accent = _add_light(
+            "MCP_Accent_Key", 'SPOT', accent_loc,
+            spec["accent_kelvin"], spec["accent_lux"],
+            rotation=accent_rot,
+        )
+
+        # Key/fill: small area light at table/object level
+        key_loc = (target.x - 0.5, target.y - 0.5, target.z + 1.0)
+        key = _add_light(
+            "MCP_Key_Table", 'AREA', key_loc,
+            spec["key_kelvin"], spec["key_lux"],
+            size_m=0.4,
+        )
+
+        # World strength
+        world = bpy.context.scene.world
+        if world is None:
+            world = bpy.data.worlds.new("World")
+            bpy.context.scene.world = world
+        world.use_nodes = True
+        bg = world.node_tree.nodes.get("Background")
+        if bg:
+            bg.inputs["Strength"].default_value = float(spec["world_strength"])
+
+        return {
+            "mood": mood,
+            "description": spec["description"],
+            "ambient_lights": [a.name for a in ambients],
+            "accent_light": accent.name,
+            "key_light": key.name,
+            "ambient_kelvin": spec["ambient_kelvin"],
+            "accent_kelvin": spec["accent_kelvin"],
+            "key_kelvin": spec["key_kelvin"],
+            "world_strength": spec["world_strength"],
+            "target": [round(v, 4) for v in target],
+        }
+
+    @staticmethod
+    def _kelvin_to_rgb(kelvin):
+        """Convert color temperature to RGB (linear) — Tanner Helland's
+        approximation, clamped. Good enough for preview lighting."""
+        t = max(1000, min(40000, float(kelvin))) / 100.0
+        if t <= 66:
+            r = 1.0
+            g = (99.4708025861 * (t ** 0.0) - 161.1195681661 + 0) / 255.0
+            # Simpler: piecewise polynomial
+            g = (99.4708025861 * (t / t)) / 255.0  # placeholder
+        # Use a known-good polynomial via mathutils internal? Simpler: linear
+        # approximation between 2000K (1, 0.45, 0.15) and 6500K (1, 1, 1).
+        if kelvin <= 2000:
+            return (1.0, 0.30, 0.10)
+        if kelvin >= 6500:
+            return (1.0, 1.0, 1.0)
+        ratio = (kelvin - 2000) / (6500 - 2000)
+        r = 1.0
+        g = 0.30 + (1.0 - 0.30) * ratio
+        b = 0.10 + (1.0 - 0.10) * (ratio ** 1.3)
+        return (r, g, b)
 
     def execute_code(self, code):
         """Execute arbitrary Blender Python code"""

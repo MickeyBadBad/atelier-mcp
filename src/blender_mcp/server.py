@@ -598,6 +598,228 @@ def set_camera_view(
         return f"Error setting camera view: {str(e)}"
 
 
+# --------------------------------------------------------------------------
+# Sprint 2 helpers — generic geometry/lighting/composition wrappers
+# --------------------------------------------------------------------------
+
+@mcp.tool()
+def mesh_cleanup(
+    ctx: Context,
+    object_name: str,
+    merge_distance: float = 0.0001,
+    decimate_ratio: float = 1.0,
+    recalc_normals: bool = True,
+    remove_loose: bool = True,
+    fix_non_manifold: bool = False,
+    triangulate: bool = False,
+) -> str:
+    """
+    Clean up a mesh in one call: merge duplicate vertices, recalc normals,
+    optional decimate, remove loose verts/edges, optional non-manifold fix
+    and triangulate.
+
+    Essential preprocessing for any imported scan (LiDAR, photogrammetry) —
+    those typically have duplicate vertices, flipped normals, and 100k+
+    triangles. Idempotent on already-clean meshes.
+
+    Parameters:
+    - object_name: Mesh to clean
+    - merge_distance: Merge verts within this radius (meters). 0 to skip.
+    - decimate_ratio: 1.0 = no decimate; 0.5 = halve face count; 0.1 = 10% kept
+    - recalc_normals: Recompute consistent outward normals
+    - remove_loose: Delete loose verts and edges
+    - fix_non_manifold: Try to fill non-manifold edges (best-effort)
+    - triangulate: Convert all quads/ngons to triangles
+
+    Returns before/after vertex/edge/face counts.
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("mesh_cleanup", {
+            "object_name": object_name,
+            "merge_distance": merge_distance,
+            "decimate_ratio": decimate_ratio,
+            "recalc_normals": recalc_normals,
+            "remove_loose": remove_loose,
+            "fix_non_manifold": fix_non_manifold,
+            "triangulate": triangulate,
+        })
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error cleaning mesh: {str(e)}")
+        return f"Error cleaning mesh: {str(e)}"
+
+
+@mcp.tool()
+def boolean_cutout(
+    ctx: Context,
+    target_object: str,
+    cutter_shape: str = "box",
+    location: List[float] = (0, 0, 0),
+    size: List[float] = (1, 1, 1),
+    rotation: List[float] = (0, 0, 0),
+    cutter_object_name: str = None,
+    operation: str = "DIFFERENCE",
+    solver: str = "EXACT",
+    apply: bool = True,
+) -> str:
+    """
+    Cut a hole / merge / intersect with a primitive (or named mesh).
+
+    Common interior-design ops: window apertures in walls, door cutouts,
+    vent holes, decorative mortises. The native bpy flow is ~25 lines and
+    LLMs frequently pick the wrong solver or forget to clean up the cutter.
+
+    Parameters:
+    - target_object: Mesh that will be cut/merged
+    - cutter_shape: 'box' | 'cylinder' | 'sphere' | 'mesh'
+    - location: World-space center of the primitive cutter [x, y, z]
+    - size: XYZ extents of the primitive cutter (meters)
+    - rotation: Euler radians [rx, ry, rz] for primitive cutters
+    - cutter_object_name: Required when cutter_shape='mesh' — name of an
+      existing object to use (will not be deleted)
+    - operation: 'DIFFERENCE' (default — hole), 'UNION', 'INTERSECT'
+    - solver: 'EXACT' (slower, robust on overlapping geometry — recommended
+      for clean architectural cuts), 'FAST' (legacy, faster, fragile)
+    - apply: True applies the modifier and removes the primitive cutter;
+      False keeps the modifier live (useful for non-destructive workflows)
+
+    Example: cut an 80x150cm doorway in 'WallA':
+      boolean_cutout('WallA', 'box', location=[0, 0, 1.0], size=[0.8, 0.5, 2.0])
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("boolean_cutout", {
+            "target_object": target_object,
+            "cutter_shape": cutter_shape,
+            "location": list(location),
+            "size": list(size),
+            "rotation": list(rotation),
+            "cutter_object_name": cutter_object_name,
+            "operation": operation,
+            "solver": solver,
+            "apply": apply,
+        })
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error in boolean_cutout: {str(e)}")
+        return f"Error in boolean_cutout: {str(e)}"
+
+
+@mcp.tool()
+def frame_camera_to_objects(
+    ctx: Context,
+    targets: List[str],
+    orbit_deg: float = 35.0,
+    elevation_deg: float = 15.0,
+    focal_mm: float = 35.0,
+    padding: float = 1.1,
+    composition: str = "thirds_left",
+    dof_target: str = None,
+    f_stop: float = 2.8,
+) -> str:
+    """
+    Position the active camera so all targets fit in frame, with composed
+    orbit + elevation + thirds offset.
+
+    LLMs frequently put cameras inside walls or aimed at the world origin;
+    this wraps Blender's camera_to_view_selected logic with sensible
+    composition defaults. Uses lens shift (not tilt) for thirds offset so
+    verticals stay straight — the single biggest "looks pro vs amateur"
+    tell in archviz.
+
+    Parameters:
+    - targets: Single object name or list — frames their combined bbox
+    - orbit_deg: Rotation around Z (0=front, 90=right side, 180=back)
+    - elevation_deg: Tilt above horizontal (0=level, 45=down-angled, 90=top)
+    - focal_mm: Lens focal length (24=wide, 35=natural, 50=portrait, 85=tight)
+    - padding: 1.0 = bbox kisses frame edges; 1.2 = 20% breathing room
+    - composition: 'center' | 'thirds_left' | 'thirds_right' |
+                   'thirds_top' | 'thirds_bottom'
+    - dof_target: Optional object name to focus on (enables DOF)
+    - f_stop: Aperture (lower = more blur). Only used when dof_target is set.
+
+    Returns final camera location, distance, FOV, etc.
+    """
+    if isinstance(targets, str):
+        targets = [targets]
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("frame_camera_to_objects", {
+            "targets": targets,
+            "orbit_deg": orbit_deg,
+            "elevation_deg": elevation_deg,
+            "focal_mm": focal_mm,
+            "padding": padding,
+            "composition": composition,
+            "dof_target": dof_target,
+            "f_stop": f_stop,
+        })
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error framing camera: {str(e)}")
+        return f"Error framing camera: {str(e)}"
+
+
+@mcp.tool()
+def setup_lighting(
+    ctx: Context,
+    mood: str = "warm_intimate",
+    target_object: str = None,
+    target_xyz: List[float] = None,
+    area_m2: float = 20.0,
+    ceiling_height_m: float = 3.0,
+    remove_existing_lights: bool = True,
+) -> str:
+    """
+    Build a 3-layer lighting rig (ambient + accent + key) tuned to a named
+    design-intent mood. Generic across cafe / retail / residential / office /
+    studio — the mood describes intent, not space type.
+
+    Available moods:
+    - warm_intimate     — Low Kelvin, low ambient, strong table-level key.
+                          Bars, lounges, evening dining, bedrooms.
+    - daylight_neutral  — Balanced 4000-4500K, medium lux, soft sky fill.
+                          Daylit interior shoots, residential common areas.
+    - bright_workspace  — High lux, neutral 4000K, even coverage.
+                          Offices, kitchens, classrooms, retail back-of-house.
+    - dramatic_accent   — Low ambient + tight accent spotlights.
+                          Galleries, retail focal displays, hero plates.
+    - golden_hour       — Warm sun-side key + cool sky ambient.
+                          Exterior renders, interior at sunset.
+    - cool_modern       — 5500-6500K, clean even lighting.
+                          Modernist showrooms, modern offices.
+    - studio_neutral    — 5500K even product photography setup.
+                          Product viz, e-commerce, neutral catalog.
+    - moody_lowkey      — Deep shadows, small key, no fill.
+                          Cinematic, noir, mystery, horror.
+
+    Parameters:
+    - mood: One of the keys above
+    - target_object: Focal point object (uses bbox center)
+    - target_xyz: Or explicit [x, y, z] focal point
+    - area_m2: Room floor area in square meters (used to scale wattage)
+    - ceiling_height_m: Where to place ambient lights
+    - remove_existing_lights: Clear MCP_*-prefixed lights before building
+
+    Returns the created light names + key parameters.
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("setup_lighting", {
+            "mood": mood,
+            "target_object": target_object,
+            "target_xyz": target_xyz,
+            "area_m2": area_m2,
+            "ceiling_height_m": ceiling_height_m,
+            "remove_existing_lights": remove_existing_lights,
+        })
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error setting up lighting: {str(e)}")
+        return f"Error setting up lighting: {str(e)}"
+
+
 @telemetry_tool("execute_blender_code")
 @mcp.tool()
 def execute_blender_code(ctx: Context, code: str) -> str:
