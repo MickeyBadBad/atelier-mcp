@@ -466,6 +466,8 @@ class BlenderMCPServer:
             "get_meshy_status": self.get_meshy_status,
             "generate_meshy_text_to_3d": self.generate_meshy_text_to_3d,
             "generate_meshy_image_to_3d": self.generate_meshy_image_to_3d,
+            # Aggregate diagnostic
+            "check_services": self.check_services,
         }
 
         # Add Polyhaven handlers only if enabled
@@ -3007,6 +3009,55 @@ class BlenderMCPServer:
         return self._import_glb_from_url(glb_url, target_size,
                                          service="meshy", task_id=task_id)
 
+    # ---- Aggregate diagnostic --------------------------------------
+
+    def check_services(self):
+        """Run every integration's status check at once and return a unified
+        health report. Useful as a one-call 'doctor' to see what's
+        configured + reachable without firing 7 separate tool calls.
+        """
+        report = {
+            "blender_version": list(bpy.app.version),
+            "addon_version": "1.9.0+fork.1",
+            "services": {},
+        }
+
+        def safe_call(label, fn):
+            try:
+                report["services"][label] = fn()
+            except Exception as e:
+                report["services"][label] = {"enabled": False,
+                                             "message": f"check failed: {e}"}
+
+        safe_call("polyhaven",   self.get_polyhaven_status)
+        safe_call("sketchfab",   self.get_sketchfab_status)
+        safe_call("hyper3d",     self.get_hyper3d_status)
+        safe_call("hunyuan3d",   self.get_hunyuan3d_status)
+        safe_call("tripo3d",     self.get_tripo3d_status)
+        safe_call("meshy",       self.get_meshy_status)
+        safe_call("ambientcg",   self.get_ambientcg_status)
+
+        # Roll-up summary
+        ready = []
+        needs_key = []
+        unreachable = []
+        for name, st in report["services"].items():
+            if isinstance(st, dict):
+                if st.get("enabled") is True:
+                    ready.append(name)
+                elif "key" in (st.get("message", "")).lower() or "key" in (st.get("message", "")).lower():
+                    needs_key.append(name)
+                else:
+                    unreachable.append(name)
+        report["summary"] = {
+            "ready": ready,
+            "needs_api_key": needs_key,
+            "unreachable_or_disabled": unreachable,
+            "total_ready": len(ready),
+            "total": len(report["services"]),
+        }
+        return report
+
     # ---- Shared GLB import helper -----------------------------------
 
     def _import_glb_from_url(self, glb_url, target_size, service, task_id):
@@ -5082,66 +5133,139 @@ class BLENDERMCP_PT_Panel(bpy.types.Panel):
         scene = context.scene
         prefs = get_blendermcp_addon_preferences(context)
 
-        layout.prop(scene, "blendermcp_port")
-        layout.prop(scene, "blendermcp_use_polyhaven", text="Use assets from Poly Haven")
+        # Helper: status icon for a given key value
+        def _key_icon(has_key):
+            return 'CHECKMARK' if has_key else 'ERROR'
 
-        layout.prop(scene, "blendermcp_use_hyper3d", text="Use Hyper3D Rodin 3D model generation")
-        if scene.blendermcp_use_hyper3d:
-            layout.prop(scene, "blendermcp_hyper3d_mode", text="Rodin Mode")
-            if prefs:
-                layout.prop(prefs, "hyper3d_api_key", text="API Key")
-            else:
-                layout.prop(scene, "blendermcp_hyper3d_api_key", text="API Key")
-            layout.operator("blendermcp.set_hyper3d_free_trial_api_key", text="Set Free Trial API Key")
+        # Helper: render a service row with a "Get key" url button if provided
+        def _service_row(parent_box, scene_attr, label, key_attr_pref=None,
+                         key_attr_scene=None, get_key_url=None):
+            row = parent_box.row(align=True)
+            row.prop(scene, scene_attr, text=label)
+            if key_attr_pref or key_attr_scene:
+                has_key = bool(
+                    (prefs and key_attr_pref and getattr(prefs, key_attr_pref, ""))
+                    or (key_attr_scene and getattr(scene, key_attr_scene, ""))
+                )
+                row.label(text="", icon=_key_icon(has_key))
+            if get_key_url:
+                op = row.operator("wm.url_open", text="", icon='URL', emboss=False)
+                op.url = get_key_url
 
-        layout.prop(scene, "blendermcp_use_sketchfab", text="Use assets from Sketchfab")
+        # ============== Server connection (top — most important) ==============
+        server_box = layout.box()
+        srow = server_box.row(align=True)
+        srow.label(text="Server", icon='WORLD_DATA')
+        if scene.blendermcp_server_running:
+            srow.label(text=f"Port {scene.blendermcp_port}", icon='LINKED')
+        srow.prop(scene, "blendermcp_port", text="")
+        if not scene.blendermcp_server_running:
+            server_box.operator("blendermcp.start_server",
+                                text="Connect to Claude", icon='PLAY')
+        else:
+            server_box.operator("blendermcp.stop_server",
+                                text="Disconnect", icon='PAUSE')
+
+        # ============== Asset libraries section ==============
+        al_box = layout.box()
+        al_box.label(text="Asset libraries", icon='ASSET_MANAGER')
+
+        # Poly Haven (no key needed — CC0)
+        row = al_box.row(align=True)
+        row.prop(scene, "blendermcp_use_polyhaven", text="Poly Haven (CC0, free)")
+        op = row.operator("wm.url_open", text="", icon='URL', emboss=False)
+        op.url = "https://polyhaven.com/"
+
+        # Sketchfab
+        _service_row(al_box, "blendermcp_use_sketchfab", "Sketchfab",
+                     key_attr_pref="sketchfab_api_key",
+                     key_attr_scene="blendermcp_sketchfab_api_key",
+                     get_key_url="https://sketchfab.com/settings/password")
         if scene.blendermcp_use_sketchfab:
+            sb = al_box.box()
             if prefs:
-                layout.prop(prefs, "sketchfab_api_key", text="API Key")
+                sb.prop(prefs, "sketchfab_api_key", text="API Key")
             else:
-                layout.prop(scene, "blendermcp_sketchfab_api_key", text="API Key")
+                sb.prop(scene, "blendermcp_sketchfab_api_key", text="API Key")
 
-        layout.prop(scene, "blendermcp_use_hunyuan3d", text="Use Tencent Hunyuan 3D model generation")
+        # ============== AI 3D generation section ==============
+        ai_box = layout.box()
+        ai_box.label(text="AI 3D generation", icon='OUTLINER_OB_MESH')
+
+        # Hyper3D Rodin
+        _service_row(ai_box, "blendermcp_use_hyper3d", "Hyper3D Rodin",
+                     key_attr_pref="hyper3d_api_key",
+                     key_attr_scene="blendermcp_hyper3d_api_key",
+                     get_key_url="https://hyper3d.ai/")
+        if scene.blendermcp_use_hyper3d:
+            sb = ai_box.box()
+            sb.prop(scene, "blendermcp_hyper3d_mode", text="Mode")
+            if prefs:
+                sb.prop(prefs, "hyper3d_api_key", text="API Key")
+            else:
+                sb.prop(scene, "blendermcp_hyper3d_api_key", text="API Key")
+            sb.operator("blendermcp.set_hyper3d_free_trial_api_key",
+                        text="Use Free Trial Key", icon='SOLO_ON')
+
+        # Tripo3D
+        _service_row(ai_box, "blendermcp_use_tripo3d", "Tripo3D",
+                     key_attr_pref="tripo3d_api_key",
+                     key_attr_scene="blendermcp_tripo3d_api_key",
+                     get_key_url="https://platform.tripo3d.ai/")
+        if scene.blendermcp_use_tripo3d:
+            sb = ai_box.box()
+            if prefs:
+                sb.prop(prefs, "tripo3d_api_key", text="API Key")
+            else:
+                sb.prop(scene, "blendermcp_tripo3d_api_key", text="API Key")
+
+        # Meshy.ai
+        _service_row(ai_box, "blendermcp_use_meshy", "Meshy.ai",
+                     key_attr_pref="meshy_api_key",
+                     key_attr_scene="blendermcp_meshy_api_key",
+                     get_key_url="https://www.meshy.ai/settings/api")
+        if scene.blendermcp_use_meshy:
+            sb = ai_box.box()
+            if prefs:
+                sb.prop(prefs, "meshy_api_key", text="API Key")
+            else:
+                sb.prop(scene, "blendermcp_meshy_api_key", text="API Key")
+
+        # Hunyuan3D (Tencent)
+        _service_row(ai_box, "blendermcp_use_hunyuan3d", "Hunyuan3D (Tencent)",
+                     key_attr_pref="hunyuan3d_secret_id",
+                     key_attr_scene="blendermcp_hunyuan3d_secret_id",
+                     get_key_url="https://cloud.tencent.com/")
         if scene.blendermcp_use_hunyuan3d:
-            layout.prop(scene, "blendermcp_hunyuan3d_mode", text="Hunyuan3D Mode")
+            sb = ai_box.box()
+            sb.prop(scene, "blendermcp_hunyuan3d_mode", text="Mode")
             if scene.blendermcp_hunyuan3d_mode == 'OFFICIAL_API':
                 if prefs:
-                    layout.prop(prefs, "hunyuan3d_secret_id", text="SecretId")
-                    layout.prop(prefs, "hunyuan3d_secret_key", text="SecretKey")
+                    sb.prop(prefs, "hunyuan3d_secret_id", text="SecretId")
+                    sb.prop(prefs, "hunyuan3d_secret_key", text="SecretKey")
                 else:
-                    layout.prop(scene, "blendermcp_hunyuan3d_secret_id", text="SecretId")
-                    layout.prop(scene, "blendermcp_hunyuan3d_secret_key", text="SecretKey")
-            if scene.blendermcp_hunyuan3d_mode == 'LOCAL_API':
+                    sb.prop(scene, "blendermcp_hunyuan3d_secret_id", text="SecretId")
+                    sb.prop(scene, "blendermcp_hunyuan3d_secret_key", text="SecretKey")
+            elif scene.blendermcp_hunyuan3d_mode == 'LOCAL_API':
                 if prefs:
-                    layout.prop(prefs, "hunyuan3d_api_url", text="API URL")
+                    sb.prop(prefs, "hunyuan3d_api_url", text="API URL")
                 else:
-                    layout.prop(scene, "blendermcp_hunyuan3d_api_url", text="API URL")
-                layout.prop(scene, "blendermcp_hunyuan3d_octree_resolution", text="Octree Resolution")
-                layout.prop(scene, "blendermcp_hunyuan3d_num_inference_steps", text="Number of Inference Steps")
-                layout.prop(scene, "blendermcp_hunyuan3d_guidance_scale", text="Guidance Scale")
-                layout.prop(scene, "blendermcp_hunyuan3d_texture", text="Generate Texture")
+                    sb.prop(scene, "blendermcp_hunyuan3d_api_url", text="API URL")
+                sb.prop(scene, "blendermcp_hunyuan3d_octree_resolution", text="Octree Res")
+                sb.prop(scene, "blendermcp_hunyuan3d_num_inference_steps", text="Steps")
+                sb.prop(scene, "blendermcp_hunyuan3d_guidance_scale", text="Guidance")
+                sb.prop(scene, "blendermcp_hunyuan3d_texture", text="Generate Texture")
 
-        # Tripo3D — added by fork
-        layout.prop(scene, "blendermcp_use_tripo3d", text="Use Tripo3D AI 3D generation")
-        if scene.blendermcp_use_tripo3d:
-            if prefs:
-                layout.prop(prefs, "tripo3d_api_key", text="Tripo3D API Key")
-            else:
-                layout.prop(scene, "blendermcp_tripo3d_api_key", text="Tripo3D API Key")
+        # ============== Help footer ==============
+        help_row = layout.row(align=True)
+        help_op = help_row.operator("wm.url_open", text="Docs", icon='HELP')
+        help_op.url = "https://github.com/MickeyBadBad/blender-mcp"
+        help_op2 = help_row.operator("wm.url_open", text="Issues", icon='ERROR')
+        help_op2.url = "https://github.com/MickeyBadBad/blender-mcp/issues"
 
-        # Meshy.ai — added by fork
-        layout.prop(scene, "blendermcp_use_meshy", text="Use Meshy.ai AI 3D generation")
-        if scene.blendermcp_use_meshy:
-            if prefs:
-                layout.prop(prefs, "meshy_api_key", text="Meshy.ai API Key")
-            else:
-                layout.prop(scene, "blendermcp_meshy_api_key", text="Meshy.ai API Key")
+        # (Old flat layout removed — server controls now live in the
+        # server_box at the top of the panel.)
 
-        if not scene.blendermcp_server_running:
-            layout.operator("blendermcp.start_server", text="Connect to MCP server")
-        else:
-            layout.operator("blendermcp.stop_server", text="Disconnect from MCP server")
-            layout.label(text=f"Running on port {scene.blendermcp_port}")
 
 # Operator to set Hyper3D API Key
 class BLENDERMCP_OT_SetFreeTrialHyper3DAPIKey(bpy.types.Operator):

@@ -1447,6 +1447,30 @@ def generate_meshy_image_to_3d(
         return f"Error generating Meshy.ai image-to-3D: {str(e)}"
 
 
+@mcp.tool()
+def check_services(ctx: Context) -> str:
+    """
+    One-call health report for every integration: PolyHaven, Sketchfab,
+    Hyper3D, Hunyuan3D, Tripo3D, Meshy.ai, ambientCG. Returns:
+
+    - Per-service status (enabled / message / balance / etc.)
+    - Roll-up summary: which are ready, which need API keys, which are
+      unreachable
+    - Blender + addon versions
+
+    Run this first when you don't know what's configured. It's the
+    fastest way to figure out which AI 3D providers and asset libraries
+    you can actually use right now.
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("check_services", {})
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error in check_services: {str(e)}")
+        return f"Error in check_services: {str(e)}"
+
+
 @telemetry_tool("execute_blender_code")
 @mcp.tool()
 def execute_blender_code(ctx: Context, code: str) -> str:
