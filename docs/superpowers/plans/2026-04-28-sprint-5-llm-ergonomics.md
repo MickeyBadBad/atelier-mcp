@@ -1262,69 +1262,11 @@ git commit -m "feat: OpenAI-compatible base_url config (Comfly/OpenRouter/vLLM)"
 
 ---
 
-## Task 13: Live test against Comfly endpoint
+## Task 13: Comfly live test — DEFERRED to Task 17 integration phase
 
-**Files:** none (verification step)
+This task is **deferred to Task 17** so the subagent driving Tasks 1–16 never blocks on Blender's socket lifecycle. Subagents do code edits + `uv run pytest` only.
 
-- [ ] **Step 1: Sync addon to Blender + reload**
-
-Run:
-
-```bash
-cp addon.py "$HOME/Library/Application Support/Blender/5.1/scripts/addons/addon.py"
-```
-
-Then in Blender (via the running MCP socket), trigger the standard reload:
-
-```python
-import sys, importlib, bpy
-mod = sys.modules['addon']
-bpy.ops.preferences.addon_disable(module='addon')
-importlib.reload(mod)
-bpy.ops.preferences.addon_enable(module='addon')
-```
-
-Click Connect to Claude in the N-panel.
-
-- [ ] **Step 2: Configure Comfly endpoint via prefs**
-
-```python
-prefs = bpy.context.preferences.addons['addon'].preferences
-prefs.openai_base_url = "https://ai.comfly.chat/v1"
-# user already has openai_api_key set via sidecar
-```
-
-- [ ] **Step 3: Test gpt-image-2 model**
-
-Via the MCP `generate_image_openai` tool, call with `model="gpt-image-2"`, `prompt="brass speakeasy door knocker, dark background, photographic"`, `save_to=/tmp/comfly_gpt2.png`.
-
-Verify file is created and is a valid PNG.
-
-- [ ] **Step 4: Test gemini-3.1-flash model**
-
-Same call with `model="gemini-3.1-flash-image-preview-2k"`, save to `/tmp/comfly_gemini.png`.
-
-Verify file.
-
-- [ ] **Step 5: Compare outputs visually**
-
-Read both images, confirm they look like the requested prompt subject.
-
-- [ ] **Step 6: Reset base_url to official to verify the fallback path still works**
-
-```python
-prefs.openai_base_url = "https://api.openai.com/v1"
-# Skip live test if no OpenAI direct key — just verify the URL is honored
-```
-
-- [ ] **Step 7: Commit any incidental fixes from this verification**
-
-If any bugs surfaced, fix and:
-
-```bash
-git add ...
-git commit -m "fix: <bug found during Comfly live test>"
-```
+The Task 12 mock test already proves `generate_image_openai` honors `openai_base_url`. The live Comfly test (gpt-image-2 + gemini-3.1-flash-image-preview-2k) runs in Task 17 once all code changes are committed.
 
 ---
 
@@ -1553,21 +1495,132 @@ gh release create v2.0.0-fork.1 --repo MickeyBadBad/blender-mcp \
   --notes-file <(awk '/## \[2.0.0/,/^## \[1.10.2/' CHANGELOG.md | head -n -1)
 ```
 
-- [ ] **Step 5: Reload Blender addon to v2 + verify check_services**
+- [ ] **Step 5: Smoke test deferred to Task 17 integration phase**
 
-In Blender via MCP:
+This step is folded into Task 17 along with Task 13's live Comfly test. Keep Task 16 strictly file-edit + git operations; subagents never touch the Blender socket.
+
+---
+
+## Task 17: Integration phase (single live-Blender batch — runs at the very end)
+
+**Constraint that drove this batching:** subagents driving Tasks 1–16 must not call `mcp__blender__*` or trigger addon reload. All Blender-touching verification happens here, sequentially, after every code/doc/release task is complete and committed.
+
+**Files:** none (verification only)
+
+- [ ] **Step 1: Sync the v2 addon.py to Blender's installed location**
+
+```bash
+cp /Users/mickey/Desktop/personal_projects/FriendsInteriorDesign/blender-mcp/addon.py \
+   "$HOME/Library/Application Support/Blender/5.1/scripts/addons/addon.py"
+diff -q /Users/mickey/Desktop/personal_projects/FriendsInteriorDesign/blender-mcp/addon.py \
+        "$HOME/Library/Application Support/Blender/5.1/scripts/addons/addon.py" \
+   && echo "synced ✓"
+```
+
+- [ ] **Step 2: Trigger addon reload via execute_blender_code**
+
+Via the running MCP socket:
 
 ```python
 import sys, importlib, bpy
+mod = sys.modules['addon']
 bpy.ops.preferences.addon_disable(module='addon')
-importlib.reload(sys.modules['addon'])
+importlib.reload(mod)
 bpy.ops.preferences.addon_enable(module='addon')
-# user clicks Connect to Claude
-# then call check_services and verify envelope shape:
-# {"ok": true, "data": {"summary": ..., "services": ...}}
+print("v2 reloaded; please click Connect to Claude")
 ```
 
-If `check_services` returns the v2 envelope shape with `ok=true`, Sprint 5 is verified end-to-end.
+User clicks Connect to Claude. Confirm reconnection by calling `mcp__blender__get_scene_info` and verifying the response is now in the v2 envelope (`{"ok": true, "data": {...}}`).
+
+- [ ] **Step 3: Smoke `check_services`**
+
+Call `mcp__blender__check_services`. Verify:
+- Response shape is the v2 envelope
+- All previously-ready services (polyhaven, sketchfab, hyper3d, tripo3d, meshy, ambientcg, openai, codex) still report `enabled=True`
+- New `data.summary` structure intact
+
+- [ ] **Step 4: Live Comfly test — gpt-image-2**
+
+```python
+prefs = bpy.context.preferences.addons['addon'].preferences
+prefs.openai_base_url = "https://ai.comfly.chat/v1"
+# openai_api_key already set via sidecar from earlier session
+```
+
+Via MCP, call:
+
+```
+mcp__blender__generate_image_openai(
+    prompt="brass speakeasy door knocker, dark background, photographic",
+    model="gpt-image-2",
+    size="1024x1024",
+    save_to="/tmp/sprint5_comfly_gpt2.png",
+)
+```
+
+Read the PNG, confirm it's a valid 1024×1024 image of a brass door knocker.
+
+- [ ] **Step 5: Live Comfly test — gemini-3.1-flash-image-preview-2k**
+
+Same shape, `model="gemini-3.1-flash-image-preview-2k"`, save to `/tmp/sprint5_comfly_gemini.png`. Verify file + visual.
+
+- [ ] **Step 6: Reset base_url back to official OpenAI**
+
+```python
+prefs.openai_base_url = "https://api.openai.com/v1"
+```
+
+(No live OpenAI test required — the mock test in Task 12 already proves base_url is honored. Real call is only made if user has direct OpenAI credit and explicitly asks.)
+
+- [ ] **Step 7: Verify naming migration is live**
+
+Call a renamed tool (e.g. `mcp__blender__poll_hyper3d_job_status` with a fake task id) — should error gracefully with envelope shape, not "tool not found". Then call the OLD name (`mcp__blender__poll_rodin_job_status`) — MUST fail with "tool not found" (no aliases per BC=B).
+
+- [ ] **Step 8: Spot-check telemetry default**
+
+```python
+prefs = bpy.context.preferences.addons['addon'].preferences
+assert prefs.telemetry_consent is False, "telemetry should default off"
+```
+
+- [ ] **Step 9: Verify smart router invokes Hyper3D for free-tier prompts**
+
+```
+mcp__blender__generate_3d_smart(
+    prompt="small brass cube, simple",
+    quality="fast",
+    max_credits=0,         # only free providers (hyper3d) qualify
+    max_wait_seconds=120,
+)
+```
+
+If Hyper3D free-trial credits are still alive: should return `{"ok": true, "data": {"chosen_provider": "hyper3d", "imported_objects": [...]}}`. If trial is exhausted: should return envelope-shaped error with `code=NO_API_KEY` or `RATE_LIMITED` — NOT silently bail.
+
+- [ ] **Step 10: If any bugs surfaced, hotfix + commit**
+
+```bash
+git add ...
+git commit -m "fix: <bug found during Sprint 5 integration test>"
+git push fork sprint-5-ergonomics
+```
+
+- [ ] **Step 11: Merge sprint-5-ergonomics → develop and finalize the release**
+
+```bash
+gh pr create --base develop --head sprint-5-ergonomics \
+  --title "Sprint 5 — LLM ergonomics (v2.0.0+fork.1)" \
+  --body-file docs/superpowers/specs/2026-04-28-blender-mcp-optimization-roadmap.md
+# Review, then merge:
+gh pr merge --squash --delete-branch
+git checkout develop && git pull
+git tag -a v2.0.0-fork.1 -m "v2.0.0+fork.1 — Sprint 5: LLM ergonomics (BC-break)"
+git push fork v2.0.0-fork.1
+gh release create v2.0.0-fork.1 --repo MickeyBadBad/blender-mcp \
+  --title "v2.0.0+fork.1 — Sprint 5: LLM ergonomics" \
+  --notes-file <(awk '/## \[2.0.0/,/^## \[1.10.2/' CHANGELOG.md | head -n -1)
+```
+
+Sprint 5 ships when this PR is merged + tagged + released.
 
 ---
 
