@@ -3270,11 +3270,13 @@ class BlenderMCPServer:
         if not ai_providers_ready:
             return {"error": "No AI 3D provider configured. Run check_services to see what's missing."}
 
-        # 2. Cost estimates by provider × quality
+        # 2. Cost estimates by provider × quality (median of observed runs;
+        #    recalibrated 2026-04 — 'best' Tripo3D was 10 but typical is ~6
+        #    which made max_credits=8 wrongly skip Tripo3D)
         cost_estimates = {
             ("tripo3d", "fast"):     3,    # Turbo or v2.5 minimal
             ("tripo3d", "standard"): 5,
-            ("tripo3d", "best"):     10,
+            ("tripo3d", "best"):     6,    # was 10 — see calibration note above
             ("meshy", "fast"):       20,   # preview only
             ("meshy", "standard"):   20,
             ("meshy", "best"):       40,   # preview + refine
@@ -3350,22 +3352,20 @@ class BlenderMCPServer:
                 max_wait_seconds=max_wait_seconds,
             )
         elif chosen == "hyper3d":
-            # Hyper3D requires the create_rodin_job command (legacy path).
-            # We surface a hint to call generate_hyper3d_text_to_3d via
-            # the existing MCP wrapper.
-            return {"chosen_provider": "hyper3d",
-                    "fallback_required": True,
-                    "message": "generate_3d_smart selected Hyper3D Rodin. "
-                               "Call generate_hyper3d_text_to_3d(prompt=...) directly — "
-                               "Rodin's two-stage flow needs explicit polling.",
-                    "estimated_cost_credits": estimated_cost}
+            # Real delegation — pre-v2 we returned fallback_required and
+            # asked the caller to invoke generate_hyper3d_text_to_3d
+            # themselves. That defeated the point of a "smart" router.
+            result = self.generate_hyper3d_text_to_3d(
+                prompt=prompt,
+                target_size=target_size,
+                max_wait_seconds=max_wait_seconds,
+            )
         elif chosen == "hunyuan3d":
-            return {"chosen_provider": "hunyuan3d",
-                    "fallback_required": True,
-                    "message": "generate_3d_smart selected Hunyuan3D. "
-                               "Call generate_hunyuan3d_model directly — Tencent path "
-                               "needs SecretId/Key auth.",
-                    "estimated_cost_credits": estimated_cost}
+            # Real delegation — same fix as hyper3d above.
+            result = self.generate_hunyuan3d_model(
+                text_prompt=prompt,
+                target_size=target_size,
+            )
 
         # 6. Account for usage on success
         if isinstance(result, dict) and "error" not in result and chosen in ("tripo3d", "meshy"):
