@@ -273,6 +273,7 @@ def get_blender_connection():
     return _blender_connection
 
 
+@tool_envelope
 @telemetry_tool("get_scene_info")
 @mcp.tool()
 def get_scene_info(ctx: Context) -> str:
@@ -284,34 +285,23 @@ def get_scene_info(ctx: Context) -> str:
     shader/modifier enums, operator arguments, compositor node types,
     and renamed APIs all drift between major versions.
     """
-    try:
-        blender = get_blender_connection()
-        result = blender.send_command("get_scene_info")
+    blender = get_blender_connection()
+    result = blender.send_command("get_scene_info")
+    return result
 
-        # Just return the JSON representation of what Blender sent us
-        return json.dumps(result, indent=2)
-    except Exception as e:
-        logger.error(f"Error getting scene info from Blender: {str(e)}")
-        return f"Error getting scene info: {str(e)}"
-
+@tool_envelope
 @telemetry_tool("get_object_info")
 @mcp.tool()
 def get_object_info(ctx: Context, object_name: str) -> str:
     """
     Get detailed information about a specific object in the Blender scene.
-    
+
     Parameters:
     - object_name: The name of the object to get information about
     """
-    try:
-        blender = get_blender_connection()
-        result = blender.send_command("get_object_info", {"name": object_name})
-        
-        # Just return the JSON representation of what Blender sent us
-        return json.dumps(result, indent=2)
-    except Exception as e:
-        logger.error(f"Error getting object info from Blender: {str(e)}")
-        return f"Error getting object info: {str(e)}"
+    blender = get_blender_connection()
+    result = blender.send_command("get_object_info", {"name": object_name})
+    return result
 
 @telemetry_tool("get_viewport_screenshot")
 @mcp.tool()
@@ -388,6 +378,7 @@ def get_viewport_screenshot(
         raise Exception(f"Screenshot failed: {str(e)}")
 
 
+@tool_envelope
 @telemetry_tool("verify_object_grounded")
 @mcp.tool()
 def verify_object_grounded(
@@ -419,18 +410,14 @@ def verify_object_grounded(
       sample is actually the trunk/base, not lower branches.
     - max_samples: Cap on raycasts (default 500).
     """
-    try:
-        blender = get_blender_connection()
-        result = blender.send_command("verify_object_grounded", {
-            "object_name": object_name,
-            "ground_name": ground_name,
-            "slice_height": slice_height,
-            "max_samples": max_samples,
-        })
-        return json.dumps(result, indent=2)
-    except Exception as e:
-        logger.error(f"Error verifying grounding: {str(e)}")
-        return f"Error verifying grounding: {str(e)}"
+    blender = get_blender_connection()
+    result = blender.send_command("verify_object_grounded", {
+        "object_name": object_name,
+        "ground_name": ground_name,
+        "slice_height": slice_height,
+        "max_samples": max_samples,
+    })
+    return result
 
 
 # --------------------------------------------------------------------------
@@ -874,6 +861,7 @@ def get_ambientcg_status(ctx: Context) -> str:
     return result
 
 
+@tool_envelope
 @mcp.tool()
 def search_ambientcg_assets(
     ctx: Context,
@@ -896,20 +884,17 @@ def search_ambientcg_assets(
 
     Returns asset_ids + categories + tags + available resolutions.
     """
-    try:
-        blender = get_blender_connection()
-        result = blender.send_command("search_ambientcg_assets", {
-            "query": query,
-            "asset_type": asset_type,
-            "category": category,
-            "limit": limit,
-        })
-        return json.dumps(result, indent=2)
-    except Exception as e:
-        logger.error(f"Error searching ambientCG: {str(e)}")
-        return f"Error searching ambientCG: {str(e)}"
+    blender = get_blender_connection()
+    result = blender.send_command("search_ambientcg_assets", {
+        "query": query,
+        "asset_type": asset_type,
+        "category": category,
+        "limit": limit,
+    })
+    return result
 
 
+@tool_envelope
 @mcp.tool()
 def download_ambientcg_asset(
     ctx: Context,
@@ -931,17 +916,13 @@ def download_ambientcg_asset(
 
     Returns the created material name + which maps were loaded.
     """
-    try:
-        blender = get_blender_connection()
-        result = blender.send_command("download_ambientcg_asset", {
-            "asset_id": asset_id,
-            "resolution": resolution,
-            "file_format": file_format,
-        })
-        return json.dumps(result, indent=2)
-    except Exception as e:
-        logger.error(f"Error downloading ambientCG asset: {str(e)}")
-        return f"Error downloading ambientCG asset: {str(e)}"
+    blender = get_blender_connection()
+    result = blender.send_command("download_ambientcg_asset", {
+        "asset_id": asset_id,
+        "resolution": resolution,
+        "file_format": file_format,
+    })
+    return result
 
 
 # --------------------------------------------------------------------------
@@ -1190,6 +1171,7 @@ def get_tripo3d_status(ctx: Context) -> str:
     return result
 
 
+@tool_envelope
 @mcp.tool()
 def generate_tripo3d_text_to_3d(
     ctx: Context,
@@ -1218,23 +1200,20 @@ def generate_tripo3d_text_to_3d(
 
     Cost estimate: 3-10 credits per generation (~$0.03-$0.10).
     """
-    try:
-        blender = get_blender_connection()
-        result = blender.send_command("generate_tripo3d_text_to_3d", {
-            "prompt": prompt,
-            "model_version": model_version,
-            "texture": texture,
-            "pbr": pbr,
-            "face_limit": face_limit,
-            "target_size": target_size,
-            "max_wait_seconds": max_wait_seconds,
-        })
-        return json.dumps(result, indent=2)
-    except Exception as e:
-        logger.error(f"Error generating Tripo3D model: {str(e)}")
-        return f"Error generating Tripo3D model: {str(e)}"
+    blender = get_blender_connection()
+    result = blender.send_command("generate_tripo3d_text_to_3d", {
+        "prompt": prompt,
+        "model_version": model_version,
+        "texture": texture,
+        "pbr": pbr,
+        "face_limit": face_limit,
+        "target_size": target_size,
+        "max_wait_seconds": max_wait_seconds,
+    })
+    return result
 
 
+@tool_envelope
 @mcp.tool()
 def generate_tripo3d_image_to_3d(
     ctx: Context,
@@ -1256,20 +1235,16 @@ def generate_tripo3d_image_to_3d(
     - target_size: rescale imported model so largest dim = this many meters
     - max_wait_seconds: polling timeout
     """
-    try:
-        blender = get_blender_connection()
-        result = blender.send_command("generate_tripo3d_image_to_3d", {
-            "image_url": image_url,
-            "model_version": model_version,
-            "texture": texture,
-            "pbr": pbr,
-            "target_size": target_size,
-            "max_wait_seconds": max_wait_seconds,
-        })
-        return json.dumps(result, indent=2)
-    except Exception as e:
-        logger.error(f"Error generating Tripo3D image-to-3D: {str(e)}")
-        return f"Error generating Tripo3D image-to-3D: {str(e)}"
+    blender = get_blender_connection()
+    result = blender.send_command("generate_tripo3d_image_to_3d", {
+        "image_url": image_url,
+        "model_version": model_version,
+        "texture": texture,
+        "pbr": pbr,
+        "target_size": target_size,
+        "max_wait_seconds": max_wait_seconds,
+    })
+    return result
 
 
 @tool_envelope
@@ -1282,6 +1257,7 @@ def get_meshy_status(ctx: Context) -> str:
     return result
 
 
+@tool_envelope
 @mcp.tool()
 def generate_meshy_text_to_3d(
     ctx: Context,
@@ -1316,24 +1292,21 @@ def generate_meshy_text_to_3d(
     Cost (Meshy-6): preview = 20 credits + refine 20 credits = 40 credits.
     Use refine=False for cheap iteration (20 credits).
     """
-    try:
-        blender = get_blender_connection()
-        result = blender.send_command("generate_meshy_text_to_3d", {
-            "prompt": prompt,
-            "ai_model": ai_model,
-            "topology": topology,
-            "target_polycount": target_polycount,
-            "enable_pbr": enable_pbr,
-            "refine": refine,
-            "target_size": target_size,
-            "max_wait_seconds": max_wait_seconds,
-        })
-        return json.dumps(result, indent=2)
-    except Exception as e:
-        logger.error(f"Error generating Meshy.ai text-to-3D: {str(e)}")
-        return f"Error generating Meshy.ai text-to-3D: {str(e)}"
+    blender = get_blender_connection()
+    result = blender.send_command("generate_meshy_text_to_3d", {
+        "prompt": prompt,
+        "ai_model": ai_model,
+        "topology": topology,
+        "target_polycount": target_polycount,
+        "enable_pbr": enable_pbr,
+        "refine": refine,
+        "target_size": target_size,
+        "max_wait_seconds": max_wait_seconds,
+    })
+    return result
 
 
+@tool_envelope
 @mcp.tool()
 def generate_meshy_image_to_3d(
     ctx: Context,
@@ -1358,26 +1331,23 @@ def generate_meshy_image_to_3d(
 
     Cost (Meshy-6): 30 credits for image-to-3D with texturing.
     """
-    try:
-        blender = get_blender_connection()
-        result = blender.send_command("generate_meshy_image_to_3d", {
-            "image_url": image_url,
-            "enable_pbr": enable_pbr,
-            "topology": topology,
-            "target_polycount": target_polycount,
-            "target_size": target_size,
-            "max_wait_seconds": max_wait_seconds,
-        })
-        return json.dumps(result, indent=2)
-    except Exception as e:
-        logger.error(f"Error generating Meshy.ai image-to-3D: {str(e)}")
-        return f"Error generating Meshy.ai image-to-3D: {str(e)}"
+    blender = get_blender_connection()
+    result = blender.send_command("generate_meshy_image_to_3d", {
+        "image_url": image_url,
+        "enable_pbr": enable_pbr,
+        "topology": topology,
+        "target_polycount": target_polycount,
+        "target_size": target_size,
+        "max_wait_seconds": max_wait_seconds,
+    })
+    return result
 
 
 # --------------------------------------------------------------------------
 # v1.10.0 — usage tracking, smart routing, OpenAI image gen
 # --------------------------------------------------------------------------
 
+@tool_envelope
 @mcp.tool()
 def get_usage_report(ctx: Context) -> str:
     """
@@ -1386,15 +1356,12 @@ def get_usage_report(ctx: Context) -> str:
     OpenAI dollars spent. Helpful before kicking off expensive batch
     generations.
     """
-    try:
-        blender = get_blender_connection()
-        result = blender.send_command("get_usage_report", {})
-        return json.dumps(result, indent=2)
-    except Exception as e:
-        logger.error(f"Error getting usage report: {str(e)}")
-        return f"Error getting usage report: {str(e)}"
+    blender = get_blender_connection()
+    result = blender.send_command("get_usage_report", {})
+    return result
 
 
+@tool_envelope
 @mcp.tool()
 def set_usage_budget(ctx: Context, service: str, max_value: float) -> str:
     """
@@ -1407,30 +1374,24 @@ def set_usage_budget(ctx: Context, service: str, max_value: float) -> str:
     Defaults: tripo3d=500 credits (~$5), meshy=200 credits, openai=$5.00.
     Counters reset when the addon is re-registered (Disable → Enable).
     """
-    try:
-        blender = get_blender_connection()
-        result = blender.send_command("set_usage_budget", {
-            "service": service, "max_value": max_value,
-        })
-        return json.dumps(result, indent=2)
-    except Exception as e:
-        logger.error(f"Error setting usage budget: {str(e)}")
-        return f"Error setting usage budget: {str(e)}"
+    blender = get_blender_connection()
+    result = blender.send_command("set_usage_budget", {
+        "service": service, "max_value": max_value,
+    })
+    return result
 
 
+@tool_envelope
 @mcp.tool()
 def reset_usage_counters(ctx: Context) -> str:
     """Reset all session usage counters back to zero. Useful at the start
     of a new design sprint. Doesn't change configured budget caps."""
-    try:
-        blender = get_blender_connection()
-        result = blender.send_command("reset_usage_counters", {})
-        return json.dumps(result, indent=2)
-    except Exception as e:
-        logger.error(f"Error resetting usage counters: {str(e)}")
-        return f"Error resetting usage counters: {str(e)}"
+    blender = get_blender_connection()
+    result = blender.send_command("reset_usage_counters", {})
+    return result
 
 
+@tool_envelope
 @mcp.tool()
 def generate_3d_smart(
     ctx: Context,
@@ -1470,19 +1431,15 @@ def generate_3d_smart(
     Use this when you don't care which AI service runs the call — you
     care about the result + cost discipline.
     """
-    try:
-        blender = get_blender_connection()
-        result = blender.send_command("generate_3d_smart", {
-            "prompt": prompt, "quality": quality,
-            "max_credits": max_credits,
-            "prefer_provider": prefer_provider,
-            "target_size": target_size,
-            "max_wait_seconds": max_wait_seconds,
-        })
-        return json.dumps(result, indent=2)
-    except Exception as e:
-        logger.error(f"Error in generate_3d_smart: {str(e)}")
-        return f"Error in generate_3d_smart: {str(e)}"
+    blender = get_blender_connection()
+    result = blender.send_command("generate_3d_smart", {
+        "prompt": prompt, "quality": quality,
+        "max_credits": max_credits,
+        "prefer_provider": prefer_provider,
+        "target_size": target_size,
+        "max_wait_seconds": max_wait_seconds,
+    })
+    return result
 
 
 @tool_envelope
@@ -1495,6 +1452,7 @@ def get_openai_status(ctx: Context) -> str:
     return result
 
 
+@tool_envelope
 @mcp.tool()
 def generate_image_openai(
     ctx: Context,
@@ -1536,17 +1494,13 @@ def generate_image_openai(
     NOTE: ChatGPT Plus subscription does NOT cover this. Separate API
     credits required at platform.openai.com.
     """
-    try:
-        blender = get_blender_connection()
-        result = blender.send_command("generate_image_openai", {
-            "prompt": prompt, "model": model, "size": size,
-            "quality": quality, "save_to": save_to,
-            "n": n, "style": style,
-        })
-        return json.dumps(result, indent=2)
-    except Exception as e:
-        logger.error(f"Error generating OpenAI image: {str(e)}")
-        return f"Error generating OpenAI image: {str(e)}"
+    blender = get_blender_connection()
+    result = blender.send_command("generate_image_openai", {
+        "prompt": prompt, "model": model, "size": size,
+        "quality": quality, "save_to": save_to,
+        "n": n, "style": style,
+    })
+    return result
 
 
 @tool_envelope
@@ -1558,6 +1512,7 @@ def get_codex_status(ctx: Context) -> str:
     return result
 
 
+@tool_envelope
 @mcp.tool()
 def generate_image_codex(
     ctx: Context,
@@ -1605,20 +1560,17 @@ def generate_image_codex(
     2. Run `codex login` and sign in via ChatGPT
     3. Verify with `get_codex_status`
     """
-    try:
-        blender = get_blender_connection()
-        result = blender.send_command("generate_image_codex", {
-            "prompt": prompt, "save_to": save_to, "size": size,
-            "reference_images": reference_images,
-            "style": style, "transparent": transparent,
-            "timeout_seconds": timeout_seconds,
-        })
-        return json.dumps(result, indent=2)
-    except Exception as e:
-        logger.error(f"Error generating Codex image: {str(e)}")
-        return f"Error generating Codex image: {str(e)}"
+    blender = get_blender_connection()
+    result = blender.send_command("generate_image_codex", {
+        "prompt": prompt, "save_to": save_to, "size": size,
+        "reference_images": reference_images,
+        "style": style, "transparent": transparent,
+        "timeout_seconds": timeout_seconds,
+    })
+    return result
 
 
+@tool_envelope
 @mcp.tool()
 def check_services(ctx: Context) -> str:
     """
@@ -1634,15 +1586,12 @@ def check_services(ctx: Context) -> str:
     fastest way to figure out which AI 3D providers and asset libraries
     you can actually use right now.
     """
-    try:
-        blender = get_blender_connection()
-        result = blender.send_command("check_services", {})
-        return json.dumps(result, indent=2)
-    except Exception as e:
-        logger.error(f"Error in check_services: {str(e)}")
-        return f"Error in check_services: {str(e)}"
+    blender = get_blender_connection()
+    result = blender.send_command("check_services", {})
+    return result
 
 
+@tool_envelope
 @telemetry_tool("execute_blender_code")
 @mcp.tool()
 def execute_blender_code(ctx: Context, code: str) -> str:
@@ -1652,11 +1601,10 @@ def execute_blender_code(ctx: Context, code: str) -> str:
     Parameters:
     - code: The Python code to execute
     """
+    # Get the global connection
+    blender = get_blender_connection()
     try:
-        # Get the global connection
-        blender = get_blender_connection()
         result = blender.send_command("execute_code", {"code": code})
-        return f"Code executed successfully: {result.get('result', '')}"
     except BlenderCommandError as e:
         # A Python exception inside the executed code round-tripped cleanly.
         # The addon prefixes these with "Code execution error: "; strip it so
@@ -1667,43 +1615,29 @@ def execute_blender_code(ctx: Context, code: str) -> str:
             msg = msg[len(prefix):]
         logger.info(f"Blender Python error: {msg}")
         return f"Blender Python error: {msg}"
-    except Exception as e:
-        logger.error(f"Communication error executing code: {str(e)}")
-        return f"Communication error: {str(e)}"
+    return f"Code executed successfully: {result.get('result', '')}"
 
+@tool_envelope
 @telemetry_tool("get_polyhaven_categories")
 @mcp.tool()
 def get_polyhaven_categories(ctx: Context, asset_type: str = "hdris") -> str:
     """
     Get a list of categories for a specific asset type on Polyhaven.
-    
+
     Parameters:
     - asset_type: The type of asset to get categories for (hdris, textures, models, all)
     """
-    try:
-        blender = get_blender_connection()
-        if not _polyhaven_enabled:
-            return "PolyHaven integration is disabled. Select it in the sidebar in BlenderMCP, then run it again."
-        result = blender.send_command("get_polyhaven_categories", {"asset_type": asset_type})
-        
-        if "error" in result:
-            return f"Error: {result['error']}"
-        
-        # Format the categories in a more readable way
-        categories = result["categories"]
-        formatted_output = f"Categories for {asset_type}:\n\n"
-        
-        # Sort categories by count (descending)
-        sorted_categories = sorted(categories.items(), key=lambda x: x[1], reverse=True)
-        
-        for category, count in sorted_categories:
-            formatted_output += f"- {category}: {count} assets\n"
-        
-        return formatted_output
-    except Exception as e:
-        logger.error(f"Error getting Polyhaven categories: {str(e)}")
-        return f"Error getting Polyhaven categories: {str(e)}"
+    blender = get_blender_connection()
+    if not _polyhaven_enabled:
+        raise ToolError(
+            ErrorCode.STATE_REQUIRED,
+            hint="PolyHaven integration is disabled. Enable it in the BlenderMCP sidebar, then retry.",
+            detail="_polyhaven_enabled is False",
+        )
+    result = blender.send_command("get_polyhaven_categories", {"asset_type": asset_type})
+    return result
 
+@tool_envelope
 @telemetry_tool("search_polyhaven_assets")
 @mcp.tool()
 def search_polyhaven_assets(
@@ -1713,47 +1647,21 @@ def search_polyhaven_assets(
 ) -> str:
     """
     Search for assets on Polyhaven with optional filtering.
-    
+
     Parameters:
     - asset_type: Type of assets to search for (hdris, textures, models, all)
     - categories: Optional comma-separated list of categories to filter by
-    
+
     Returns a list of matching assets with basic information.
     """
-    try:
-        blender = get_blender_connection()
-        result = blender.send_command("search_polyhaven_assets", {
-            "asset_type": asset_type,
-            "categories": categories
-        })
-        
-        if "error" in result:
-            return f"Error: {result['error']}"
-        
-        # Format the assets in a more readable way
-        assets = result["assets"]
-        total_count = result["total_count"]
-        returned_count = result["returned_count"]
-        
-        formatted_output = f"Found {total_count} assets"
-        if categories:
-            formatted_output += f" in categories: {categories}"
-        formatted_output += f"\nShowing {returned_count} assets:\n\n"
-        
-        # Sort assets by download count (popularity)
-        sorted_assets = sorted(assets.items(), key=lambda x: x[1].get("download_count", 0), reverse=True)
-        
-        for asset_id, asset_data in sorted_assets:
-            formatted_output += f"- {asset_data.get('name', asset_id)} (ID: {asset_id})\n"
-            formatted_output += f"  Type: {['HDRI', 'Texture', 'Model'][asset_data.get('type', 0)]}\n"
-            formatted_output += f"  Categories: {', '.join(asset_data.get('categories', []))}\n"
-            formatted_output += f"  Downloads: {asset_data.get('download_count', 'Unknown')}\n\n"
-        
-        return formatted_output
-    except Exception as e:
-        logger.error(f"Error searching Polyhaven assets: {str(e)}")
-        return f"Error searching Polyhaven assets: {str(e)}"
+    blender = get_blender_connection()
+    result = blender.send_command("search_polyhaven_assets", {
+        "asset_type": asset_type,
+        "categories": categories
+    })
+    return result
 
+@tool_envelope
 @telemetry_tool("download_polyhaven_asset")
 @mcp.tool()
 def download_polyhaven_asset(
@@ -1765,46 +1673,23 @@ def download_polyhaven_asset(
 ) -> str:
     """
     Download and import a Polyhaven asset into Blender.
-    
+
     Parameters:
     - asset_id: The ID of the asset to download
     - asset_type: The type of asset (hdris, textures, models)
     - resolution: The resolution to download (e.g., 1k, 2k, 4k)
     - file_format: Optional file format (e.g., hdr, exr for HDRIs; jpg, png for textures; gltf, fbx for models)
-    
+
     Returns a message indicating success or failure.
     """
-    try:
-        blender = get_blender_connection()
-        result = blender.send_command("download_polyhaven_asset", {
-            "asset_id": asset_id,
-            "asset_type": asset_type,
-            "resolution": resolution,
-            "file_format": file_format
-        })
-        
-        if "error" in result:
-            return f"Error: {result['error']}"
-        
-        if result.get("success"):
-            message = result.get("message", "Asset downloaded and imported successfully")
-            
-            # Add additional information based on asset type
-            if asset_type == "hdris":
-                return f"{message}. The HDRI has been set as the world environment."
-            elif asset_type == "textures":
-                material_name = result.get("material", "")
-                maps = ", ".join(result.get("maps", []))
-                return f"{message}. Created material '{material_name}' with maps: {maps}."
-            elif asset_type == "models":
-                return f"{message}. The model has been imported into the current scene."
-            else:
-                return message
-        else:
-            return f"Failed to download asset: {result.get('message', 'Unknown error')}"
-    except Exception as e:
-        logger.error(f"Error downloading Polyhaven asset: {str(e)}")
-        return f"Error downloading Polyhaven asset: {str(e)}"
+    blender = get_blender_connection()
+    result = blender.send_command("download_polyhaven_asset", {
+        "asset_id": asset_id,
+        "asset_type": asset_type,
+        "resolution": resolution,
+        "file_format": file_format
+    })
+    return result
 
 @tool_envelope
 @telemetry_tool("set_texture")
@@ -1859,6 +1744,7 @@ def get_sketchfab_status(ctx: Context) -> str:
     result = blender.send_command("get_sketchfab_status")
     return result
 
+@tool_envelope
 @telemetry_tool("search_sketchfab_models")
 @mcp.tool()
 def search_sketchfab_models(
@@ -1879,62 +1765,15 @@ def search_sketchfab_models(
 
     Returns a formatted list of matching models.
     """
-    try:
-        blender = get_blender_connection()
-        logger.info(f"Searching Sketchfab models with query: {query}, categories: {categories}, count: {count}, downloadable: {downloadable}")
-        result = blender.send_command("search_sketchfab_models", {
-            "query": query,
-            "categories": categories,
-            "count": count,
-            "downloadable": downloadable
-        })
-        
-        if "error" in result:
-            logger.error(f"Error from Sketchfab search: {result['error']}")
-            return f"Error: {result['error']}"
-        
-        # Safely get results with fallbacks for None
-        if result is None:
-            logger.error("Received None result from Sketchfab search")
-            return "Error: Received no response from Sketchfab search"
-            
-        # Format the results
-        models = result.get("results", []) or []
-        if not models:
-            return f"No models found matching '{query}'"
-            
-        formatted_output = f"Found {len(models)} models matching '{query}':\n\n"
-        
-        for model in models:
-            if model is None:
-                continue
-                
-            model_name = model.get("name", "Unnamed model")
-            model_uid = model.get("uid", "Unknown ID")
-            formatted_output += f"- {model_name} (UID: {model_uid})\n"
-            
-            # Get user info with safety checks
-            user = model.get("user") or {}
-            username = user.get("username", "Unknown author") if isinstance(user, dict) else "Unknown author"
-            formatted_output += f"  Author: {username}\n"
-            
-            # Get license info with safety checks
-            license_data = model.get("license") or {}
-            license_label = license_data.get("label", "Unknown") if isinstance(license_data, dict) else "Unknown"
-            formatted_output += f"  License: {license_label}\n"
-            
-            # Add face count and downloadable status
-            face_count = model.get("faceCount", "Unknown")
-            is_downloadable = "Yes" if model.get("isDownloadable") else "No"
-            formatted_output += f"  Face count: {face_count}\n"
-            formatted_output += f"  Downloadable: {is_downloadable}\n\n"
-        
-        return formatted_output
-    except Exception as e:
-        logger.error(f"Error searching Sketchfab models: {str(e)}")
-        import traceback
-        logger.error(traceback.format_exc())
-        return f"Error searching Sketchfab models: {str(e)}"
+    blender = get_blender_connection()
+    logger.info(f"Searching Sketchfab models with query: {query}, categories: {categories}, count: {count}, downloadable: {downloadable}")
+    result = blender.send_command("search_sketchfab_models", {
+        "query": query,
+        "categories": categories,
+        "count": count,
+        "downloadable": downloadable
+    })
+    return result
 
 @telemetry_tool("download_sketchfab_model")
 @mcp.tool()
@@ -1979,6 +1818,7 @@ def get_sketchfab_model_preview(
         raise Exception(f"Failed to get preview: {str(e)}")
 
 
+@tool_envelope
 @mcp.tool()
 def download_sketchfab_model(
     ctx: Context,
@@ -1988,7 +1828,7 @@ def download_sketchfab_model(
     """
     Download and import a Sketchfab model by its UID.
     The model will be scaled so its largest dimension equals target_size.
-    
+
     Parameters:
     - uid: The unique identifier of the Sketchfab model
     - target_size: REQUIRED. The target size in Blender units/meters for the largest dimension.
@@ -1999,58 +1839,18 @@ def download_sketchfab_model(
                   - Car: target_size=4.5 (4.5 meters long)
                   - Person: target_size=1.7 (1.7 meters tall)
                   - Small object (cup, phone): target_size=0.1 to 0.3
-    
+
     Returns a message with import details including object names, dimensions, and bounding box.
     The model must be downloadable and you must have proper access rights.
     """
-    try:
-        blender = get_blender_connection()
-        logger.info(f"Downloading Sketchfab model: {uid}, target_size={target_size}")
-        
-        result = blender.send_command("download_sketchfab_model", {
-            "uid": uid,
-            "normalize_size": True,  # Always normalize
-            "target_size": target_size
-        })
-        
-        if result is None:
-            logger.error("Received None result from Sketchfab download")
-            return "Error: Received no response from Sketchfab download request"
-            
-        if "error" in result:
-            logger.error(f"Error from Sketchfab download: {result['error']}")
-            return f"Error: {result['error']}"
-        
-        if result.get("success"):
-            imported_objects = result.get("imported_objects", [])
-            object_names = ", ".join(imported_objects) if imported_objects else "none"
-            
-            output = f"Successfully imported model.\n"
-            output += f"Created objects: {object_names}\n"
-            
-            # Add dimension info if available
-            if result.get("dimensions"):
-                dims = result["dimensions"]
-                output += f"Dimensions (X, Y, Z): {dims[0]:.3f} x {dims[1]:.3f} x {dims[2]:.3f} meters\n"
-            
-            # Add bounding box info if available
-            if result.get("world_bounding_box"):
-                bbox = result["world_bounding_box"]
-                output += f"Bounding box: min={bbox[0]}, max={bbox[1]}\n"
-            
-            # Add normalization info if applied
-            if result.get("normalized"):
-                scale = result.get("scale_applied", 1.0)
-                output += f"Size normalized: scale factor {scale:.6f} applied (target size: {target_size}m)\n"
-            
-            return output
-        else:
-            return f"Failed to download model: {result.get('message', 'Unknown error')}"
-    except Exception as e:
-        logger.error(f"Error downloading Sketchfab model: {str(e)}")
-        import traceback
-        logger.error(traceback.format_exc())
-        return f"Error downloading Sketchfab model: {str(e)}"
+    blender = get_blender_connection()
+    logger.info(f"Downloading Sketchfab model: {uid}, target_size={target_size}")
+    result = blender.send_command("download_sketchfab_model", {
+        "uid": uid,
+        "normalize_size": True,  # Always normalize
+        "target_size": target_size
+    })
+    return result
 
 def _process_bbox(original_bbox: list[float] | list[int] | None) -> list[int] | None:
     if original_bbox is None:
@@ -2061,6 +1861,7 @@ def _process_bbox(original_bbox: list[float] | list[int] | None) -> list[int] | 
         raise ValueError("Incorrect number range: bbox must be bigger than zero!")
     return [int(float(i) / max(original_bbox) * 100) for i in original_bbox] if original_bbox else None
 
+@tool_envelope
 @telemetry_tool("generate_hyper3d_model_via_text")
 @mcp.tool()
 def generate_hyper3d_model_via_text(
@@ -2079,25 +1880,21 @@ def generate_hyper3d_model_via_text(
 
     Returns a message indicating success or failure.
     """
-    try:
-        blender = get_blender_connection()
-        result = blender.send_command("create_rodin_job", {
-            "text_prompt": text_prompt,
-            "images": None,
-            "bbox_condition": _process_bbox(bbox_condition),
-        })
-        succeed = result.get("submit_time", False)
-        if succeed:
-            return json.dumps({
-                "task_uuid": result["uuid"],
-                "subscription_key": result["jobs"]["subscription_key"],
-            })
-        else:
-            return json.dumps(result)
-    except Exception as e:
-        logger.error(f"Error generating Hyper3D task: {str(e)}")
-        return f"Error generating Hyper3D task: {str(e)}"
+    blender = get_blender_connection()
+    result = blender.send_command("create_rodin_job", {
+        "text_prompt": text_prompt,
+        "images": None,
+        "bbox_condition": _process_bbox(bbox_condition),
+    })
+    succeed = result.get("submit_time", False)
+    if succeed:
+        return {
+            "task_uuid": result["uuid"],
+            "subscription_key": result["jobs"]["subscription_key"],
+        }
+    return result
 
+@tool_envelope
 @telemetry_tool("generate_hyper3d_model_via_images")
 @mcp.tool()
 def generate_hyper3d_model_via_images(
@@ -2110,7 +1907,7 @@ def generate_hyper3d_model_via_images(
     Generate 3D asset using Hyper3D by giving images of the wanted asset, and import the generated asset into Blender.
     The 3D asset has built-in materials.
     The generated model has a normalized size, so re-scaling after generation can be useful.
-    
+
     Parameters:
     - input_image_paths: The **absolute** paths of input images. Even if only one image is provided, wrap it into a list. Required if Hyper3D Rodin in MAIN_SITE mode.
     - input_image_urls: The URLs of input images. Even if only one image is provided, wrap it into a list. Required if Hyper3D Rodin in FAL_AI mode.
@@ -2120,12 +1917,24 @@ def generate_hyper3d_model_via_images(
     Returns a message indicating success or failure.
     """
     if input_image_paths is not None and input_image_urls is not None:
-        return f"Error: Conflict parameters given!"
+        raise ToolError(
+            ErrorCode.BAD_INPUT,
+            hint="Pass exactly one of input_image_paths or input_image_urls, not both.",
+            detail="Conflict parameters given.",
+        )
     if input_image_paths is None and input_image_urls is None:
-        return f"Error: No image given!"
+        raise ToolError(
+            ErrorCode.BAD_INPUT,
+            hint="Pass either input_image_paths (MAIN_SITE mode) or input_image_urls (FAL_AI mode).",
+            detail="No image given.",
+        )
     if input_image_paths is not None:
         if not all(os.path.exists(i) for i in input_image_paths):
-            return "Error: not all image paths are valid!"
+            raise ToolError(
+                ErrorCode.NOT_FOUND,
+                hint="One or more input_image_paths do not exist on disk.",
+                detail=f"Paths checked: {input_image_paths}",
+            )
         images = []
         for path in input_image_paths:
             with open(path, "rb") as f:
@@ -2134,27 +1943,27 @@ def generate_hyper3d_model_via_images(
                 )
     elif input_image_urls is not None:
         if not all(_is_valid_http_url(i) for i in input_image_urls):
-            return "Error: not all image URLs are valid!"
+            raise ToolError(
+                ErrorCode.BAD_INPUT,
+                hint="All input_image_urls must be absolute HTTP(S) URLs.",
+                detail=f"URLs checked: {input_image_urls}",
+            )
         images = input_image_urls.copy()
-    try:
-        blender = get_blender_connection()
-        result = blender.send_command("create_rodin_job", {
-            "text_prompt": None,
-            "images": images,
-            "bbox_condition": _process_bbox(bbox_condition),
-        })
-        succeed = result.get("submit_time", False)
-        if succeed:
-            return json.dumps({
-                "task_uuid": result["uuid"],
-                "subscription_key": result["jobs"]["subscription_key"],
-            })
-        else:
-            return json.dumps(result)
-    except Exception as e:
-        logger.error(f"Error generating Hyper3D task: {str(e)}")
-        return f"Error generating Hyper3D task: {str(e)}"
+    blender = get_blender_connection()
+    result = blender.send_command("create_rodin_job", {
+        "text_prompt": None,
+        "images": images,
+        "bbox_condition": _process_bbox(bbox_condition),
+    })
+    succeed = result.get("submit_time", False)
+    if succeed:
+        return {
+            "task_uuid": result["uuid"],
+            "subscription_key": result["jobs"]["subscription_key"],
+        }
+    return result
 
+@tool_envelope
 @telemetry_tool("poll_rodin_job_status")
 @mcp.tool()
 def poll_rodin_job_status(
@@ -2182,23 +1991,20 @@ def poll_rodin_job_status(
         If status other than "COMPLETED", "IN_PROGRESS", "IN_QUEUE" showed up, the generating process might be failed.
         This is a polling API, so only proceed if the status are finally determined ("COMPLETED" or some failed state).
     """
-    try:
-        blender = get_blender_connection()
-        kwargs = {}
-        if subscription_key:
-            kwargs = {
-                "subscription_key": subscription_key,
-            }
-        elif request_id:
-            kwargs = {
-                "request_id": request_id,
-            }
-        result = blender.send_command("poll_rodin_job_status", kwargs)
-        return result
-    except Exception as e:
-        logger.error(f"Error generating Hyper3D task: {str(e)}")
-        return f"Error generating Hyper3D task: {str(e)}"
+    blender = get_blender_connection()
+    kwargs = {}
+    if subscription_key:
+        kwargs = {
+            "subscription_key": subscription_key,
+        }
+    elif request_id:
+        kwargs = {
+            "request_id": request_id,
+        }
+    result = blender.send_command("poll_rodin_job_status", kwargs)
+    return result
 
+@tool_envelope
 @telemetry_tool("import_generated_asset")
 @mcp.tool()
 def import_generated_asset(
@@ -2218,20 +2024,16 @@ def import_generated_asset(
     Only give one of {task_uuid, request_id} based on the Hyper3D Rodin Mode!
     Return if the asset has been imported successfully.
     """
-    try:
-        blender = get_blender_connection()
-        kwargs = {
-            "name": name
-        }
-        if task_uuid:
-            kwargs["task_uuid"] = task_uuid
-        elif request_id:
-            kwargs["request_id"] = request_id
-        result = blender.send_command("import_generated_asset", kwargs)
-        return result
-    except Exception as e:
-        logger.error(f"Error generating Hyper3D task: {str(e)}")
-        return f"Error generating Hyper3D task: {str(e)}"
+    blender = get_blender_connection()
+    kwargs = {
+        "name": name
+    }
+    if task_uuid:
+        kwargs["task_uuid"] = task_uuid
+    elif request_id:
+        kwargs["request_id"] = request_id
+    result = blender.send_command("import_generated_asset", kwargs)
+    return result
 
 @tool_envelope
 @mcp.tool()
@@ -2241,6 +2043,7 @@ def get_hunyuan3d_status(ctx: Context) -> str:
     result = blender.send_command("get_hunyuan3d_status")
     return result
     
+@tool_envelope
 @mcp.tool()
 def generate_hunyuan3d_model(
     ctx: Context,
@@ -2248,36 +2051,31 @@ def generate_hunyuan3d_model(
     input_image_url: str = None
 ) -> str:
     """
-    Generate 3D asset using Hunyuan3D by providing either text description, image reference, 
+    Generate 3D asset using Hunyuan3D by providing either text description, image reference,
     or both for the desired asset, and import the asset into Blender.
     The 3D asset has built-in materials.
-    
+
     Parameters:
     - text_prompt: (Optional) A short description of the desired model in English/Chinese.
     - input_image_url: (Optional) The local or remote url of the input image. Accepts None if only using text prompt.
 
-    Returns: 
+    Returns:
     - When successful, returns a JSON with job_id (format: "job_xxx") indicating the task is in progress
     - When the job completes, the status will change to "DONE" indicating the model has been imported
     - Returns error message if the operation fails
     """
-    try:
-        blender = get_blender_connection()
-        result = blender.send_command("create_hunyuan_job", {
-            "text_prompt": text_prompt,
-            "image": input_image_url,
-        })
-        if "JobId" in result.get("Response", {}):
-            job_id = result["Response"]["JobId"]
-            formatted_job_id = f"job_{job_id}"
-            return json.dumps({
-                "job_id": formatted_job_id,
-            })
-        return json.dumps(result)
-    except Exception as e:
-        logger.error(f"Error generating Hunyuan3D task: {str(e)}")
-        return f"Error generating Hunyuan3D task: {str(e)}"
-    
+    blender = get_blender_connection()
+    result = blender.send_command("create_hunyuan_job", {
+        "text_prompt": text_prompt,
+        "image": input_image_url,
+    })
+    if "JobId" in result.get("Response", {}):
+        job_id = result["Response"]["JobId"]
+        formatted_job_id = f"job_{job_id}"
+        return {"job_id": formatted_job_id}
+    return result
+
+@tool_envelope
 @mcp.tool()
 def poll_hunyuan_job_status(
     ctx: Context,
@@ -2296,17 +2094,14 @@ def poll_hunyuan_job_status(
         When the status is "DONE", the response includes a field named ResultFile3Ds that contains the generated ZIP file path of the 3D model in OBJ format.
         This is a polling API, so only proceed if the status are finally determined ("DONE" or some failed state).
     """
-    try:
-        blender = get_blender_connection()
-        kwargs = {
-            "job_id": job_id,
-        }
-        result = blender.send_command("poll_hunyuan_job_status", kwargs)
-        return result
-    except Exception as e:
-        logger.error(f"Error generating Hunyuan3D task: {str(e)}")
-        return f"Error generating Hunyuan3D task: {str(e)}"
+    blender = get_blender_connection()
+    kwargs = {
+        "job_id": job_id,
+    }
+    result = blender.send_command("poll_hunyuan_job_status", kwargs)
+    return result
 
+@tool_envelope
 @mcp.tool()
 def import_generated_asset_hunyuan(
     ctx: Context,
@@ -2322,18 +2117,14 @@ def import_generated_asset_hunyuan(
 
     Return if the asset has been imported successfully.
     """
-    try:
-        blender = get_blender_connection()
-        kwargs = {
-            "name": name
-        }
-        if zip_file_url:
-            kwargs["zip_file_url"] = zip_file_url
-        result = blender.send_command("import_generated_asset_hunyuan", kwargs)
-        return result
-    except Exception as e:
-        logger.error(f"Error generating Hunyuan3D task: {str(e)}")
-        return f"Error generating Hunyuan3D task: {str(e)}"
+    blender = get_blender_connection()
+    kwargs = {
+        "name": name
+    }
+    if zip_file_url:
+        kwargs["zip_file_url"] = zip_file_url
+    result = blender.send_command("import_generated_asset_hunyuan", kwargs)
+    return result
 
 
 @mcp.prompt()
