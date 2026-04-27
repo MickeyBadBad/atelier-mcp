@@ -279,6 +279,11 @@ class BlenderMCPServer:
             "get_hyper3d_status": self.get_hyper3d_status,
             "get_sketchfab_status": self.get_sketchfab_status,
             "get_hunyuan3d_status": self.get_hunyuan3d_status,
+            # Design-workflow helpers (added by fork)
+            "apply_material_color": self.apply_material_color,
+            "place_on_ground": self.place_on_ground,
+            "render_image": self.render_image,
+            "set_camera_view": self.set_camera_view,
         }
 
         # Add Polyhaven handlers only if enabled
@@ -691,6 +696,263 @@ class BlenderMCPServer:
             "mean_gap": round(sum(gaps) / len(gaps), 4),
             "slice_height": slice_height,
             "hint": hint,
+        }
+
+    # ------------------------------------------------------------------
+    # Design-workflow helpers (added by fork)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _hex_to_rgba(hex_color: str):
+        """Parse '#RRGGBB' / '#RGB' / 'RRGGBB' into a Blender (r,g,b,a) tuple."""
+        h = hex_color.lstrip("#").strip()
+        if len(h) == 3:
+            h = "".join(c * 2 for c in h)
+        if len(h) != 6:
+            raise ValueError(f"Invalid hex color: {hex_color!r}")
+        r = int(h[0:2], 16) / 255.0
+        g = int(h[2:4], 16) / 255.0
+        b = int(h[4:6], 16) / 255.0
+        return (r, g, b, 1.0)
+
+    @staticmethod
+    def _world_bbox(obj):
+        """World-space (min, max) of obj plus all descendant meshes, or (None, None)."""
+        mins = [float("inf")] * 3
+        maxs = [-float("inf")] * 3
+        found = False
+
+        def walk(o):
+            nonlocal found
+            if o.type == "MESH" and o.data:
+                for v in o.bound_box:
+                    w = o.matrix_world @ mathutils.Vector(v)
+                    for i in range(3):
+                        mins[i] = min(mins[i], w[i])
+                        maxs[i] = max(maxs[i], w[i])
+                    found = True
+            for c in o.children:
+                walk(c)
+
+        walk(obj)
+        if not found:
+            return None, None
+        return mathutils.Vector(mins), mathutils.Vector(maxs)
+
+    def apply_material_color(self, object_name, hex_color,
+                             roughness=0.7, metallic=0.0,
+                             emission_color=None, emission_strength=0.0,
+                             material_name=None):
+        """Replace the object's material with a single Principled BSDF tinted to hex_color.
+
+        Common case for design mock-ups: 'paint this wall #1a3a2e'. Avoids the
+        boilerplate of building a shader graph via execute_code.
+        """
+        obj = bpy.data.objects.get(object_name)
+        if obj is None:
+            return {"error": f"Object '{object_name}' not found"}
+        if obj.type != "MESH":
+            return {"error": f"Object '{object_name}' is not a mesh (type={obj.type})"}
+
+        rgba = self._hex_to_rgba(hex_color)
+        emission_rgba = self._hex_to_rgba(emission_color) if emission_color else None
+
+        mat_name = material_name or f"Color_{hex_color.lstrip('#')}_{object_name}"
+        mat = bpy.data.materials.new(mat_name)
+        mat.use_nodes = True
+        nt = mat.node_tree
+        nt.nodes.clear()
+        out = nt.nodes.new("ShaderNodeOutputMaterial")
+        out.location = (300, 0)
+        bsdf = nt.nodes.new("ShaderNodeBsdfPrincipled")
+        bsdf.location = (0, 0)
+        bsdf.inputs["Base Color"].default_value = rgba
+        bsdf.inputs["Roughness"].default_value = float(roughness)
+        bsdf.inputs["Metallic"].default_value = float(metallic)
+        if emission_rgba is not None:
+            # Principled BSDF in Blender 4.x has Emission Color + Emission Strength
+            if "Emission Color" in bsdf.inputs:
+                bsdf.inputs["Emission Color"].default_value = emission_rgba
+            elif "Emission" in bsdf.inputs:
+                bsdf.inputs["Emission"].default_value = emission_rgba
+            if "Emission Strength" in bsdf.inputs:
+                bsdf.inputs["Emission Strength"].default_value = float(emission_strength)
+        nt.links.new(bsdf.outputs["BSDF"], out.inputs["Surface"])
+
+        obj.data.materials.clear()
+        obj.data.materials.append(mat)
+
+        return {
+            "object_name": object_name,
+            "material_name": mat.name,
+            "base_color": list(rgba),
+            "roughness": float(roughness),
+            "metallic": float(metallic),
+            "emission_strength": float(emission_strength),
+        }
+
+    def place_on_ground(self, object_name, ground_z=0.0,
+                        center_xy=False, target_xy=None):
+        """Translate an object so its bounding-box bottom sits on ground_z.
+
+        Optional center_xy=True moves the bbox center to (0,0). Or pass an
+        explicit target_xy=[x,y] to set the center elsewhere. Walks descendant
+        meshes so imported FBX/GLB hierarchies (Sketchfab models) work
+        without flattening the parent hierarchy.
+        """
+        obj = bpy.data.objects.get(object_name)
+        if obj is None:
+            return {"error": f"Object '{object_name}' not found"}
+        bmin, bmax = self._world_bbox(obj)
+        if bmin is None:
+            return {"error": f"Object '{object_name}' has no mesh geometry to bound"}
+
+        delta_z = float(ground_z) - bmin.z
+        delta_x = 0.0
+        delta_y = 0.0
+        if target_xy is not None:
+            cx = (bmin.x + bmax.x) / 2
+            cy = (bmin.y + bmax.y) / 2
+            delta_x = float(target_xy[0]) - cx
+            delta_y = float(target_xy[1]) - cy
+        elif center_xy:
+            cx = (bmin.x + bmax.x) / 2
+            cy = (bmin.y + bmax.y) / 2
+            delta_x = -cx
+            delta_y = -cy
+
+        obj.location.x += delta_x
+        obj.location.y += delta_y
+        obj.location.z += delta_z
+
+        # Re-evaluate bbox for the response
+        new_min, new_max = self._world_bbox(obj)
+        return {
+            "object_name": object_name,
+            "delta": [round(delta_x, 4), round(delta_y, 4), round(delta_z, 4)],
+            "new_bbox_min": [round(new_min.x, 4), round(new_min.y, 4), round(new_min.z, 4)],
+            "new_bbox_max": [round(new_max.x, 4), round(new_max.y, 4), round(new_max.z, 4)],
+        }
+
+    def render_image(self, filepath, resolution=None, samples=64,
+                     engine="CYCLES", use_gpu=True,
+                     view_transform="Filmic", look="Medium High Contrast"):
+        """Render the active camera to filepath (PNG by extension).
+
+        Sets engine, samples, resolution, and tone-mapping in one call instead
+        of asking the LLM to wire scene properties through execute_code.
+        Returns the absolute filepath of the rendered image.
+        """
+        scene = bpy.context.scene
+        if not scene.camera:
+            return {"error": "Scene has no active camera. Use set_camera_view first."}
+
+        # Engine
+        if engine.upper() == "CYCLES":
+            scene.render.engine = "CYCLES"
+            scene.cycles.samples = int(samples)
+            scene.cycles.use_denoising = True
+            if use_gpu:
+                try:
+                    scene.cycles.device = "GPU"
+                except Exception:
+                    scene.cycles.device = "CPU"
+        elif engine.upper() in ("EEVEE", "BLENDER_EEVEE", "EEVEE_NEXT", "BLENDER_EEVEE_NEXT"):
+            for candidate in ("BLENDER_EEVEE_NEXT", "BLENDER_EEVEE"):
+                try:
+                    scene.render.engine = candidate
+                    break
+                except Exception:
+                    continue
+        else:
+            return {"error": f"Unsupported engine '{engine}'. Use CYCLES or EEVEE."}
+
+        if resolution is not None:
+            scene.render.resolution_x = int(resolution[0])
+            scene.render.resolution_y = int(resolution[1])
+            scene.render.resolution_percentage = 100
+
+        scene.view_settings.view_transform = view_transform
+        scene.view_settings.look = look
+        scene.render.film_transparent = False
+
+        scene.render.filepath = filepath
+        scene.render.image_settings.file_format = "PNG"
+        bpy.ops.render.render(write_still=True)
+
+        return {
+            "filepath": bpy.path.abspath(filepath),
+            "engine": scene.render.engine,
+            "samples": int(samples) if engine.upper() == "CYCLES" else None,
+            "resolution": [scene.render.resolution_x, scene.render.resolution_y],
+        }
+
+    def set_camera_view(self, target_object=None, target_xyz=None,
+                        angle="3q", distance=10.0, lens=35.0,
+                        height_offset=0.0):
+        """Position the active camera to look at a target from a preset angle.
+
+        Presets: front / back / left / right / top / 3q (3/4 hero shot) / iso.
+        Either target_object (name) or target_xyz ([x,y,z]) is required.
+        """
+        import math
+        if target_object is not None:
+            obj = bpy.data.objects.get(target_object)
+            if obj is None:
+                return {"error": f"Object '{target_object}' not found"}
+            bmin, bmax = self._world_bbox(obj)
+            if bmin is None:
+                target = obj.location.copy()
+            else:
+                target = mathutils.Vector((
+                    (bmin.x + bmax.x) / 2,
+                    (bmin.y + bmax.y) / 2,
+                    (bmin.z + bmax.z) / 2,
+                ))
+        elif target_xyz is not None:
+            target = mathutils.Vector(target_xyz)
+        else:
+            return {"error": "Either target_object or target_xyz is required"}
+
+        target.z += float(height_offset)
+
+        d = float(distance)
+        offsets = {
+            "front":  mathutils.Vector(( d,  0,  0)),
+            "back":   mathutils.Vector((-d,  0,  0)),
+            "left":   mathutils.Vector(( 0, -d,  0)),
+            "right":  mathutils.Vector(( 0,  d,  0)),
+            "top":    mathutils.Vector(( 0,  0,  d)),
+            "3q":     mathutils.Vector(( d, -d, d * 0.5)),
+            "iso":    mathutils.Vector(( d / math.sqrt(3),
+                                        -d / math.sqrt(3),
+                                         d / math.sqrt(3))),
+        }
+        if angle not in offsets:
+            return {"error": f"Unknown angle '{angle}'. Choose from: {sorted(offsets)}"}
+
+        cam = bpy.context.scene.camera
+        if cam is None:
+            # Find any camera, or create one
+            cam = next((o for o in bpy.context.scene.objects if o.type == "CAMERA"), None)
+            if cam is None:
+                cam_data = bpy.data.cameras.new("Camera")
+                cam = bpy.data.objects.new("Camera", cam_data)
+                bpy.context.collection.objects.link(cam)
+            bpy.context.scene.camera = cam
+
+        cam.location = target + offsets[angle]
+        direction = target - cam.location
+        cam.rotation_euler = direction.to_track_quat("-Z", "Y").to_euler()
+        cam.data.lens = float(lens)
+
+        return {
+            "camera_name": cam.name,
+            "location": [round(v, 4) for v in cam.location],
+            "rotation_euler_deg": [round(math.degrees(v), 2) for v in cam.rotation_euler],
+            "target": [round(v, 4) for v in target],
+            "lens_mm": float(lens),
+            "angle": angle,
         }
 
     def execute_code(self, code):

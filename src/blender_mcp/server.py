@@ -431,6 +431,173 @@ def verify_object_grounded(
         return f"Error verifying grounding: {str(e)}"
 
 
+# --------------------------------------------------------------------------
+# Design-workflow helpers (added by fork) — high-frequency operations that
+# would otherwise require execute_blender_code boilerplate.
+# --------------------------------------------------------------------------
+
+@mcp.tool()
+def apply_material_color(
+    ctx: Context,
+    object_name: str,
+    hex_color: str,
+    roughness: float = 0.7,
+    metallic: float = 0.0,
+    emission_color: str = None,
+    emission_strength: float = 0.0,
+) -> str:
+    """
+    Apply a single solid Principled BSDF material to an object.
+
+    Use this when you want a flat painted surface (walls, doors, panels) and
+    do NOT need a textured material. Replaces any existing material on the
+    object with a new BSDF tinted to hex_color.
+
+    Parameters:
+    - object_name: Mesh object to paint
+    - hex_color: '#RRGGBB' or '#RGB' or 'RRGGBB'
+    - roughness: 0..1 (0=mirror, 1=matte)
+    - metallic: 0..1 (0=dielectric, 1=metal)
+    - emission_color: Optional '#RRGGBB' for self-illuminating surfaces
+    - emission_strength: Emission watts/m^2 multiplier (0..many)
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("apply_material_color", {
+            "object_name": object_name,
+            "hex_color": hex_color,
+            "roughness": roughness,
+            "metallic": metallic,
+            "emission_color": emission_color,
+            "emission_strength": emission_strength,
+        })
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error applying material color: {str(e)}")
+        return f"Error applying material color: {str(e)}"
+
+
+@mcp.tool()
+def place_on_ground(
+    ctx: Context,
+    object_name: str,
+    ground_z: float = 0.0,
+    center_xy: bool = False,
+    target_xy: List[float] = None,
+) -> str:
+    """
+    Translate an object so the bottom of its world bounding box sits on ground_z.
+
+    Useful immediately after importing a Sketchfab/Polyhaven model whose origin
+    is offset from its visible base. Walks descendant meshes so FBX/GLB
+    hierarchies (multi-mesh imports with empty parents) work without flattening.
+
+    Parameters:
+    - object_name: Object (or hierarchy root) to ground
+    - ground_z: Target world z for the bbox bottom (default 0)
+    - center_xy: If True, also recenter the bbox to (0, 0) on the XY plane
+    - target_xy: If provided ([x, y]), center the bbox there (overrides center_xy)
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("place_on_ground", {
+            "object_name": object_name,
+            "ground_z": ground_z,
+            "center_xy": center_xy,
+            "target_xy": target_xy,
+        })
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error placing on ground: {str(e)}")
+        return f"Error placing on ground: {str(e)}"
+
+
+@mcp.tool()
+def render_image(
+    ctx: Context,
+    filepath: str,
+    resolution: List[int] = None,
+    samples: int = 64,
+    engine: str = "CYCLES",
+    use_gpu: bool = True,
+    view_transform: str = "Filmic",
+    look: str = "Medium High Contrast",
+) -> str:
+    """
+    Render the active camera to a PNG file with one call.
+
+    Skips the boilerplate of setting scene.render.engine, samples, resolution,
+    tone-mapping, and triggering bpy.ops.render. Returns the absolute filepath
+    on success.
+
+    Parameters:
+    - filepath: Output PNG path (.png appended if missing)
+    - resolution: [width, height] (default 1920x1080 if scene unset)
+    - samples: Cycles samples (ignored for EEVEE)
+    - engine: 'CYCLES' or 'EEVEE'
+    - use_gpu: Try GPU device for Cycles
+    - view_transform: 'Filmic' (default), 'Standard', 'AgX', etc.
+    - look: 'Medium High Contrast' (default), 'None', 'High Contrast', etc.
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("render_image", {
+            "filepath": filepath,
+            "resolution": resolution,
+            "samples": samples,
+            "engine": engine,
+            "use_gpu": use_gpu,
+            "view_transform": view_transform,
+            "look": look,
+        })
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error rendering image: {str(e)}")
+        return f"Error rendering image: {str(e)}"
+
+
+@mcp.tool()
+def set_camera_view(
+    ctx: Context,
+    target_object: str = None,
+    target_xyz: List[float] = None,
+    angle: str = "3q",
+    distance: float = 10.0,
+    lens: float = 35.0,
+    height_offset: float = 0.0,
+) -> str:
+    """
+    Position the active camera to look at a target using a preset angle.
+
+    Skips quaternion math. Either target_object (name) or target_xyz must be
+    provided. If no camera exists in the scene, one is created.
+
+    Parameters:
+    - target_object: Look at this object's bounding-box center
+    - target_xyz: Or look at this explicit world-space point
+    - angle: One of 'front', 'back', 'left', 'right', 'top',
+             '3q' (3/4 hero — default), 'iso' (isometric)
+    - distance: Camera distance from target (meters)
+    - lens: Focal length in mm (35=wide-ish, 50=natural, 85=portrait)
+    - height_offset: Raise the look-at point this much above bbox center
+                     (useful to compose toward an upper feature like a roof)
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("set_camera_view", {
+            "target_object": target_object,
+            "target_xyz": target_xyz,
+            "angle": angle,
+            "distance": distance,
+            "lens": lens,
+            "height_offset": height_offset,
+        })
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error setting camera view: {str(e)}")
+        return f"Error setting camera view: {str(e)}"
+
+
 @telemetry_tool("execute_blender_code")
 @mcp.tool()
 def execute_blender_code(ctx: Context, code: str) -> str:
