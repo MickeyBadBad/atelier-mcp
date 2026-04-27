@@ -88,3 +88,28 @@ def test_tool_envelope_does_not_pass_through_fake_ok_string():
     # The fake string becomes the data of a real envelope:
     assert parsed["ok"] is True
     assert "truthy-but-fake" in parsed["data"]
+
+
+def test_get_polyhaven_status_envelope_shape(mock_blender_connection):
+    """All get_*_status tools should return the canonical envelope."""
+    import json
+    from blender_mcp.server import get_polyhaven_status
+    mock_blender_connection.send_command.return_value = {
+        "enabled": True,
+        "message": "PolyHaven ready",
+    }
+    out = get_polyhaven_status(None)
+    parsed = json.loads(out)
+    assert parsed["ok"] is True
+    assert parsed["data"]["enabled"] is True
+
+
+def test_get_polyhaven_status_handles_addon_disconnect(mock_blender_connection):
+    import json
+    from blender_mcp.server import get_polyhaven_status
+    mock_blender_connection.send_command.side_effect = ConnectionRefusedError("[Errno 61]")
+    out = get_polyhaven_status(None)
+    parsed = json.loads(out)
+    assert parsed["ok"] is False
+    assert parsed["error"]["code"] == "STATE_REQUIRED"
+    assert "Connect to Claude" in parsed["error"]["hint"]

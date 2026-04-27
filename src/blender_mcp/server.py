@@ -16,6 +16,8 @@ from urllib.parse import urlparse
 # Import telemetry
 from .telemetry import record_startup, get_telemetry
 from .telemetry_decorator import telemetry_tool
+from ._envelope import tool_envelope, ToolError, ErrorCode, _tool_response
+from ._errors import _format_error
 
 # Configure logging
 logging.basicConfig(level=logging.INFO,
@@ -892,19 +894,14 @@ def list_archviz_genres(ctx: Context) -> str:
         return f"Error listing archviz genres: {str(e)}"
 
 
+@tool_envelope
 @mcp.tool()
 def get_ambientcg_status(ctx: Context) -> str:
-    """
-    Check if ambientCG (CC0 PBR texture library, ~2000+ materials) is
-    reachable. No API key required — public CC0 service.
-    """
-    try:
-        blender = get_blender_connection()
-        result = blender.send_command("get_ambientcg_status", {})
-        return json.dumps(result, indent=2)
-    except Exception as e:
-        logger.error(f"Error checking ambientCG status: {str(e)}")
-        return f"Error checking ambientCG status: {str(e)}"
+    """Check if ambientCG (CC0 PBR texture library, ~2000+ materials) is
+    reachable. No API key required — public CC0 service."""
+    blender = get_blender_connection()
+    result = blender.send_command("get_ambientcg_status", {})
+    return result
 
 
 @mcp.tool()
@@ -1228,25 +1225,14 @@ def set_world_hdri_rotation(
 # the LLM gets a single round-trip per generation request.
 # --------------------------------------------------------------------------
 
+@tool_envelope
 @mcp.tool()
 def get_tripo3d_status(ctx: Context) -> str:
-    """
-    Check if Tripo3D is configured and reachable. Tripo3D is a top-tier
-    text-to-3D / image-to-3D service with full PBR output and competitive
-    pricing (~$0.01/credit, ~3-10 credits per generation). Free 5,000-credit
-    developer grant available via the Game Hub program.
-
-    Get an API key at https://platform.tripo3d.ai/ and either:
-    - Add to Blender prefs: Edit > Preferences > Add-ons > Blender MCP
-    - Or set env var BLENDERMCP_TRIPO3D_API_KEY in your MCP config
-    """
-    try:
-        blender = get_blender_connection()
-        result = blender.send_command("get_tripo3d_status", {})
-        return json.dumps(result, indent=2)
-    except Exception as e:
-        logger.error(f"Error checking Tripo3D status: {str(e)}")
-        return f"Error checking Tripo3D status: {str(e)}"
+    """Check if Tripo3D is configured and reachable. Tripo3D is a top-tier
+    text-to-3D / image-to-3D service with full PBR output."""
+    blender = get_blender_connection()
+    result = blender.send_command("get_tripo3d_status", {})
+    return result
 
 
 @mcp.tool()
@@ -1331,28 +1317,14 @@ def generate_tripo3d_image_to_3d(
         return f"Error generating Tripo3D image-to-3D: {str(e)}"
 
 
+@tool_envelope
 @mcp.tool()
 def get_meshy_status(ctx: Context) -> str:
-    """
-    Check if Meshy.ai is configured and reachable. Meshy.ai is a top-tier
-    text-to-3D / image-to-3D service with strong all-around quality, native
-    GLB / FBX / OBJ / STL / USDZ / 3MF output. AI texturing, remesh, rigging
-    are separate billable endpoints.
-
-    API requires Pro tier or above (no free monthly API credits since
-    2025-03-20). Test key for development: msy_dummy_api_key_for_test_mode_12345678.
-
-    Get an API key at https://www.meshy.ai/settings/api and either:
-    - Add to Blender prefs: Edit > Preferences > Add-ons > Blender MCP
-    - Or set env var BLENDERMCP_MESHY_API_KEY in your MCP config
-    """
-    try:
-        blender = get_blender_connection()
-        result = blender.send_command("get_meshy_status", {})
-        return json.dumps(result, indent=2)
-    except Exception as e:
-        logger.error(f"Error checking Meshy.ai status: {str(e)}")
-        return f"Error checking Meshy.ai status: {str(e)}"
+    """Check if Meshy.ai is configured and reachable. Meshy.ai is a top-tier
+    text-to-3D / image-to-3D service with strong all-around quality."""
+    blender = get_blender_connection()
+    result = blender.send_command("get_meshy_status", {})
+    return result
 
 
 @mcp.tool()
@@ -1558,24 +1530,14 @@ def generate_3d_smart(
         return f"Error in generate_3d_smart: {str(e)}"
 
 
+@tool_envelope
 @mcp.tool()
 def get_openai_status(ctx: Context) -> str:
-    """
-    Verify OpenAI API key + connectivity for image generation
-    (DALL-E 3 / gpt-image-1).
-
-    IMPORTANT: ChatGPT Plus / Pro subscription does NOT include API
-    access. API credits are billed separately at platform.openai.com.
-
-    Set BLENDERMCP_OPENAI_API_KEY env var or paste in Blender prefs.
-    """
-    try:
-        blender = get_blender_connection()
-        result = blender.send_command("get_openai_status", {})
-        return json.dumps(result, indent=2)
-    except Exception as e:
-        logger.error(f"Error checking OpenAI status: {str(e)}")
-        return f"Error checking OpenAI status: {str(e)}"
+    """Verify OpenAI API key + connectivity for image generation
+    (DALL-E 3 / gpt-image-1)."""
+    blender = get_blender_connection()
+    result = blender.send_command("get_openai_status", {})
+    return result
 
 
 @mcp.tool()
@@ -1632,26 +1594,13 @@ def generate_image_openai(
         return f"Error generating OpenAI image: {str(e)}"
 
 
+@tool_envelope
 @mcp.tool()
 def get_codex_status(ctx: Context) -> str:
-    """
-    Verify Codex CLI is installed and logged in via ChatGPT.
-
-    When logged in via ChatGPT, image generation via Codex's $imagegen
-    skill (model: gpt-image-2) counts against the user's ChatGPT
-    subscription quota — NOT against any OpenAI API billing. This is
-    the **preferred FREE path** for normal-volume design work.
-
-    For batching (hundreds of images), use generate_image_openai with
-    BLENDERMCP_OPENAI_API_KEY for paid API rates instead.
-    """
-    try:
-        blender = get_blender_connection()
-        result = blender.send_command("get_codex_status", {})
-        return json.dumps(result, indent=2)
-    except Exception as e:
-        logger.error(f"Error checking Codex status: {str(e)}")
-        return f"Error checking Codex status: {str(e)}"
+    """Verify Codex CLI is installed and logged in via ChatGPT."""
+    blender = get_blender_connection()
+    result = blender.send_command("get_codex_status", {})
+    return result
 
 
 @mcp.tool()
@@ -1962,62 +1911,33 @@ def set_texture(
         logger.error(f"Error applying texture: {str(e)}")
         return f"Error applying texture: {str(e)}"
 
+@tool_envelope
 @telemetry_tool("get_polyhaven_status")
 @mcp.tool()
 def get_polyhaven_status(ctx: Context) -> str:
-    """
-    Check if PolyHaven integration is enabled in Blender.
-    Returns a message indicating whether PolyHaven features are available.
-    """
-    try:
-        blender = get_blender_connection()
-        result = blender.send_command("get_polyhaven_status")
-        enabled = result.get("enabled", False)
-        message = result.get("message", "")
-        if enabled:
-            message += "PolyHaven is good at Textures, and has a wider variety of textures than Sketchfab."
-        return message
-    except Exception as e:
-        logger.error(f"Error checking PolyHaven status: {str(e)}")
-        return f"Error checking PolyHaven status: {str(e)}"
+    """Check if PolyHaven integration is enabled. PolyHaven hosts CC0 PBR
+    textures, HDRIs, and 3D models — no API key required."""
+    blender = get_blender_connection()
+    result = blender.send_command("get_polyhaven_status")
+    return result
 
+@tool_envelope
 @telemetry_tool("get_hyper3d_status")
 @mcp.tool()
 def get_hyper3d_status(ctx: Context) -> str:
-    """
-    Check if Hyper3D Rodin integration is enabled in Blender.
-    Returns a message indicating whether Hyper3D Rodin features are available.
-    """
-    try:
-        blender = get_blender_connection()
-        result = blender.send_command("get_hyper3d_status")
-        enabled = result.get("enabled", False)
-        message = result.get("message", "")
-        if enabled:
-            message += ""
-        return message
-    except Exception as e:
-        logger.error(f"Error checking Hyper3D status: {str(e)}")
-        return f"Error checking Hyper3D status: {str(e)}"
+    """Check if Hyper3D Rodin integration is enabled in Blender."""
+    blender = get_blender_connection()
+    result = blender.send_command("get_hyper3d_status")
+    return result
 
+@tool_envelope
 @telemetry_tool("get_sketchfab_status")
 @mcp.tool()
 def get_sketchfab_status(ctx: Context) -> str:
-    """
-    Check if Sketchfab integration is enabled in Blender.
-    Returns a message indicating whether Sketchfab features are available.
-    """
-    try:
-        blender = get_blender_connection()
-        result = blender.send_command("get_sketchfab_status")
-        enabled = result.get("enabled", False)
-        message = result.get("message", "")
-        if enabled:
-            message += "Sketchfab is good at Realistic models, and has a wider variety of models than PolyHaven."        
-        return message
-    except Exception as e:
-        logger.error(f"Error checking Sketchfab status: {str(e)}")
-        return f"Error checking Sketchfab status: {str(e)}"
+    """Check if Sketchfab integration is enabled in Blender."""
+    blender = get_blender_connection()
+    result = blender.send_command("get_sketchfab_status")
+    return result
 
 @telemetry_tool("search_sketchfab_models")
 @mcp.tool()
@@ -2393,20 +2313,13 @@ def import_generated_asset(
         logger.error(f"Error generating Hyper3D task: {str(e)}")
         return f"Error generating Hyper3D task: {str(e)}"
 
+@tool_envelope
 @mcp.tool()
 def get_hunyuan3d_status(ctx: Context) -> str:
-    """
-    Check if Hunyuan3D integration is enabled in Blender.
-    Returns a message indicating whether Hunyuan3D features are available.
-    """
-    try:
-        blender = get_blender_connection()
-        result = blender.send_command("get_hunyuan3d_status")
-        message = result.get("message", "")
-        return message
-    except Exception as e:
-        logger.error(f"Error checking Hunyuan3D status: {str(e)}")
-        return f"Error checking Hunyuan3D status: {str(e)}"
+    """Check if Hunyuan3D integration is enabled in Blender."""
+    blender = get_blender_connection()
+    result = blender.send_command("get_hunyuan3d_status")
+    return result
     
 @mcp.tool()
 def generate_hunyuan3d_model(
