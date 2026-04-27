@@ -6,6 +6,46 @@ This is an actively maintained community fork of [ahujasid/blender-mcp](https://
 
 ---
 
+## [2.0.0+fork.1] — 2026-04-29
+
+**Breaking changes** — every `@mcp.tool()` now returns a canonical JSON envelope. Tool renames hard-applied without aliases. Migration cheat sheet in CLAUDE.md.
+
+### Breaking
+- All tools return `{"ok": bool, "data"?: ..., "error"?: {"code": str, "hint": str, "detail": str}}`. Legacy `Error: ...` strings and naked dicts are gone. LLM clients should branch on `ok` and `error.code`.
+- Renames (no aliases):
+  - `import_generated_asset` → `import_hyper3d_asset`
+  - `import_generated_asset_hunyuan` → `import_hunyuan3d_asset`
+  - `poll_rodin_job_status` → `poll_hyper3d_job_status`
+  - `generate_hyper3d_model_via_text` → `generate_hyper3d_text_to_3d`
+  - `generate_hyper3d_model_via_images` → `generate_hyper3d_image_to_3d`
+- `telemetry_consent` defaults to `False` (was `True`). Re-opt-in via Blender prefs if desired.
+
+### Added
+- `tool_envelope` decorator + `ToolError` + `ErrorCode` enum (`src/blender_mcp/_envelope.py`)
+- `_format_error()` actionable-hint mapper (`src/blender_mcp/_errors.py`)
+- `SERVICE_REGISTRY` dataclass-based service spec at top of `addon.py`
+- `generate_3d_smart` accepts `reference_image_url` for image-to-3D routing
+- `download_polyhaven_asset` accepts `target_size` (None = native scale)
+- OpenAI integration generalized to OpenAI-compatible: new `openai_base_url` config field on AddonPreferences/scene/env. Provider templates dropdown in N-panel: Official, Comfly, OpenRouter.
+- `AGENTS.md` at fork root — conventions for AI agents extending the fork
+- pytest scaffold + 5 test files (`tests/test_envelope.py`, `test_errors.py`, `test_naming.py`, `test_smart_router.py`, `test_openai_compat.py`)
+
+### Fixed
+- `generate_3d_smart` no longer silently bails when picking Hyper3D / Hunyuan3D — actually invokes the underlying generation flow.
+- `generate_3d_smart` cost estimates calibrated to median observed cost (Tripo3D best 6 not 10, etc.).
+- State leakage: `set_world_hdri_rotation` without HDRI, `apply_archviz_material(genre='painted_wall')` without `custom_hex` etc. now raise `STATE_REQUIRED` instead of silent no-op or vague string error.
+
+### Documentation
+- `execute_blender_code` docstring rewritten to point to purpose-built tools first.
+- `set_camera_view` ↔ `frame_camera_to_objects` cross-reference each other.
+- v2 migration cheat sheet added to project CLAUDE.md.
+
+### Migration
+
+Re-entering API keys is NOT required (sidecar persistence works across this update). Old tool-name calls in saved chat histories will fail — see the cheat sheet for the rename map.
+
+---
+
 ## [1.10.2+fork.1] — 2026-04-28
 
 **Critical bug fix**: API keys were getting wiped every time the addon reloaded. Even with Blender's `use_preferences_save=True`, AddonPreferences StringProperty changes weren't being flushed to `userpref.blend` synchronously — the in-memory value disappeared during addon disable/re-enable before it ever hit disk.
