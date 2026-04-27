@@ -56,3 +56,22 @@ def test_smart_router_cost_estimate_tripo_best_is_six_not_ten():
     )
     s.generate_tripo3d_text_to_3d.assert_called_once()
     s.generate_meshy_text_to_3d.assert_not_called()
+
+
+def test_smart_router_routes_to_image_to_3d_when_ref_provided():
+    from addon import BlenderMCPServer
+    s = BlenderMCPServer.__new__(BlenderMCPServer)
+    s.check_services = lambda: {
+        "summary": {"ready": ["tripo3d"]},
+        "services": {},
+    }
+    s.generate_tripo3d_image_to_3d = MagicMock(return_value={"imported_objects": ["I"]})
+    s.generate_tripo3d_text_to_3d = MagicMock()
+    BlenderMCPServer.generate_3d_smart(
+        s,
+        prompt="brass knob",
+        quality="standard",
+        reference_image_url="https://example.com/x.jpg",
+    )
+    s.generate_tripo3d_image_to_3d.assert_called_once()
+    s.generate_tripo3d_text_to_3d.assert_not_called()

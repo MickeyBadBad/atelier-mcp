@@ -1401,9 +1401,10 @@ def generate_3d_smart(
     prefer_provider: str = None,
     target_size: float = 2.0,
     max_wait_seconds: int = 240,
+    reference_image_url: str = None,
 ) -> str:
     """
-    Auto-route a text-to-3D request to the best AI provider available
+    Auto-route a 3D-generation request to the best AI provider available
     based on quality target, configured services, and remaining budget.
 
     Quality tiers:
@@ -1426,6 +1427,13 @@ def generate_3d_smart(
     - prefer_provider: 'tripo3d' | 'meshy' | 'hyper3d' to override auto-select
     - target_size: rescale imported model so largest dim = this many meters
     - max_wait_seconds: polling timeout
+    - reference_image_url: optional public image URL. When provided AND the
+                   chosen provider is Tripo3D or Meshy, the image-to-3D
+                   variant is used instead of text-to-3D. Hyper3D and
+                   Hunyuan3D fall back to the text path in this release
+                   (image-input wrappers for those providers are deferred
+                   to a future sprint). Public URLs only — file uploads
+                   are out of scope.
 
     Returns the chosen provider + the underlying generation result.
     Use this when you don't care which AI service runs the call — you
@@ -1438,6 +1446,7 @@ def generate_3d_smart(
         "prefer_provider": prefer_provider,
         "target_size": target_size,
         "max_wait_seconds": max_wait_seconds,
+        "reference_image_url": reference_image_url,
     })
     return result
 

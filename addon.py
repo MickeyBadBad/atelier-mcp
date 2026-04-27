@@ -3543,9 +3543,11 @@ class BlenderMCPServer:
 
     def generate_3d_smart(self, prompt, quality="standard",
                           max_credits=None, prefer_provider=None,
-                          target_size=2.0, max_wait_seconds=240):
-        """Route a text-to-3D request to the best-available AI provider
-        based on quality target, configured services, and remaining budget.
+                          target_size=2.0, max_wait_seconds=240,
+                          reference_image_url=None):
+        """Route a text-to-3D (or image-to-3D) request to the best-available
+        AI provider based on quality target, configured services, and
+        remaining budget.
 
         Quality tiers:
         - 'fast'     — minimum credits, OK for blockouts. Tries Hyper3D
@@ -3557,6 +3559,12 @@ class BlenderMCPServer:
 
         prefer_provider: override auto-selection ('tripo3d', 'meshy', 'hyper3d').
         max_credits: skip a provider if its estimated cost exceeds this.
+        reference_image_url: optional public image URL. When provided AND the
+            chosen provider is Tripo3D or Meshy, the image-to-3D variant is
+            used instead of text-to-3D. Hyper3D and Hunyuan3D currently fall
+            back to the text path in this release (image-input wrappers for
+            those providers are a future sprint). Public URLs only — file
+            uploads are out of scope.
         Returns the provider chosen + the underlying generation result.
         """
         # 1. Survey what's actually configured + reachable
@@ -3631,26 +3639,55 @@ class BlenderMCPServer:
                 "standard": "v2.5-20250123",
                 "best":     "v3.1-20260211",
             }[quality]
-            result = self.generate_tripo3d_text_to_3d(
-                prompt=prompt, model_version=model_version,
-                texture=True, pbr=(quality != "fast"),
-                face_limit=20000 if quality == "fast" else 30000,
-                target_size=target_size,
-                max_wait_seconds=max_wait_seconds,
-            )
+            if reference_image_url:
+                # Image-to-3D path. Tripo's image_to_3d wrapper doesn't take
+                # a face_limit kwarg today; pass the args it actually accepts.
+                result = self.generate_tripo3d_image_to_3d(
+                    image_url=reference_image_url,
+                    model_version=model_version,
+                    texture=True, pbr=(quality != "fast"),
+                    target_size=target_size,
+                    max_wait_seconds=max_wait_seconds,
+                )
+            else:
+                result = self.generate_tripo3d_text_to_3d(
+                    prompt=prompt, model_version=model_version,
+                    texture=True, pbr=(quality != "fast"),
+                    face_limit=20000 if quality == "fast" else 30000,
+                    target_size=target_size,
+                    max_wait_seconds=max_wait_seconds,
+                )
         elif chosen == "meshy":
-            result = self.generate_meshy_text_to_3d(
-                prompt=prompt, ai_model="meshy-6",
-                topology="quad", target_polycount=20000 if quality == "fast" else 30000,
-                enable_pbr=(quality == "best"),
-                refine=(quality == "best"),
-                target_size=target_size,
-                max_wait_seconds=max_wait_seconds,
-            )
+            if reference_image_url:
+                # Meshy image_to_3d takes enable_pbr / topology / target_polycount,
+                # not ai_model / refine — pass only what's relevant.
+                result = self.generate_meshy_image_to_3d(
+                    image_url=reference_image_url,
+                    enable_pbr=(quality == "best"),
+                    topology="quad",
+                    target_polycount=20000 if quality == "fast" else 30000,
+                    target_size=target_size,
+                    max_wait_seconds=max_wait_seconds,
+                )
+            else:
+                result = self.generate_meshy_text_to_3d(
+                    prompt=prompt, ai_model="meshy-6",
+                    topology="quad", target_polycount=20000 if quality == "fast" else 30000,
+                    enable_pbr=(quality == "best"),
+                    refine=(quality == "best"),
+                    target_size=target_size,
+                    max_wait_seconds=max_wait_seconds,
+                )
         elif chosen == "hyper3d":
             # Real delegation — pre-v2 we returned fallback_required and
             # asked the caller to invoke generate_hyper3d_text_to_3d
             # themselves. That defeated the point of a "smart" router.
+            #
+            # If reference_image_url is set we silently fall back to the text
+            # path: Task 8 only added a text-to-3D sync wrapper for Hyper3D,
+            # and the legacy create_rodin_job(images=...) flow is deferred to
+            # a future sprint. The text prompt still drives generation, so
+            # the call doesn't error out.
             result = self.generate_hyper3d_text_to_3d(
                 prompt=prompt,
                 target_size=target_size,
@@ -3658,6 +3695,9 @@ class BlenderMCPServer:
             )
         elif chosen == "hunyuan3d":
             # Real delegation — same fix as hyper3d above.
+            # Hunyuan3D's image-input mode is also a future-sprint expansion;
+            # for now we route to the text path even if reference_image_url
+            # is set.
             result = self.generate_hunyuan3d_model(
                 text_prompt=prompt,
                 target_size=target_size,
