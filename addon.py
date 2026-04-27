@@ -5632,10 +5632,78 @@ class BlenderMCPServer:
                 print(f"Failed to clean up temporary directory {temp_dir}: {e}")
     #endregion
 
+# Auto-save Blender preferences whenever a credential field changes.
+# Without this, Blender holds the new value in memory only — and an addon
+# disable/reload (which we do every time we patch addon.py) wipes the
+# in-memory state before it ever reaches userpref.blend on disk. This
+# update= callback forces a sync save on every keystroke commit, plus
+# also persists to a JSON sidecar at ~/.blendermcp_credentials.json so
+# the keys survive even nuclear cases (Blender crash, prefs file rewrite).
+import json as _json_creds
+_BLENDERMCP_CRED_SIDECAR = os.path.join(os.path.expanduser("~"),
+                                        ".blendermcp_credentials.json")
+
+def _persist_credentials(self, context):
+    """update= callback for credential StringProperties.
+
+    1. Snapshot current credential values from this AddonPreferences.
+    2. Atomically write to ~/.blendermcp_credentials.json (mode 0600).
+    3. Save Blender's userpref.blend so the value also lives in Blender's
+       own persistent store.
+    """
+    cred_fields = (
+        "sketchfab_api_key", "hyper3d_api_key",
+        "hunyuan3d_secret_id", "hunyuan3d_secret_key", "hunyuan3d_api_url",
+        "tripo3d_api_key", "meshy_api_key", "openai_api_key",
+    )
+    snapshot = {f: getattr(self, f, "") for f in cred_fields}
+    # Sidecar JSON write (atomic via tmp + rename)
+    try:
+        tmp = _BLENDERMCP_CRED_SIDECAR + ".tmp"
+        with open(tmp, "w") as fp:
+            _json_creds.dump(snapshot, fp, indent=2)
+        os.replace(tmp, _BLENDERMCP_CRED_SIDECAR)
+        try:
+            os.chmod(_BLENDERMCP_CRED_SIDECAR, 0o600)
+        except Exception:
+            pass
+    except Exception as e:
+        print(f"[blender-mcp] credential sidecar write failed: {e}")
+    # Force Blender to flush prefs to disk
+    try:
+        bpy.ops.wm.save_userpref()
+    except Exception as e:
+        print(f"[blender-mcp] save_userpref failed (non-fatal): {e}")
+
+
+def _load_credentials_from_sidecar():
+    """Load credentials from ~/.blendermcp_credentials.json into the
+    AddonPreferences instance. Called from register() so values come
+    back even if userpref.blend lost them between addon reloads."""
+    if not os.path.exists(_BLENDERMCP_CRED_SIDECAR):
+        return
+    try:
+        with open(_BLENDERMCP_CRED_SIDECAR, "r") as fp:
+            data = _json_creds.load(fp)
+        addon = bpy.context.preferences.addons.get(__name__)
+        if not addon:
+            return
+        prefs = addon.preferences
+        if not prefs:
+            return
+        for k, v in data.items():
+            if v and not getattr(prefs, k, ""):
+                setattr(prefs, k, v)
+        print(f"[blender-mcp] restored {sum(1 for v in data.values() if v)} "
+              f"credentials from sidecar")
+    except Exception as e:
+        print(f"[blender-mcp] credential sidecar restore failed: {e}")
+
+
 # Blender Addon Preferences
 class BLENDERMCP_AddonPreferences(bpy.types.AddonPreferences):
     bl_idname = __name__
-    
+
     telemetry_consent: BoolProperty(
         name="Allow Telemetry",
         description="Allow collection of prompts, code snippets, and screenshots to help improve Blender MCP",
@@ -5645,47 +5713,55 @@ class BLENDERMCP_AddonPreferences(bpy.types.AddonPreferences):
         name="Hyper3D API Key",
         subtype="PASSWORD",
         description="Persistent Hyper3D API Key",
-        default=""
+        default="",
+        update=_persist_credentials,
     )
     sketchfab_api_key: bpy.props.StringProperty(
         name="Sketchfab API Key",
         subtype="PASSWORD",
         description="Persistent Sketchfab API Key",
-        default=""
+        default="",
+        update=_persist_credentials,
     )
     hunyuan3d_secret_id: bpy.props.StringProperty(
         name="Hunyuan3D SecretId",
         description="Persistent Hunyuan3D SecretId",
-        default=""
+        default="",
+        update=_persist_credentials,
     )
     hunyuan3d_secret_key: bpy.props.StringProperty(
         name="Hunyuan3D SecretKey",
         subtype="PASSWORD",
         description="Persistent Hunyuan3D SecretKey",
-        default=""
+        default="",
+        update=_persist_credentials,
     )
     hunyuan3d_api_url: bpy.props.StringProperty(
         name="Hunyuan3D API URL",
         description="Persistent Hunyuan3D API URL",
-        default=""
+        default="",
+        update=_persist_credentials,
     )
     tripo3d_api_key: bpy.props.StringProperty(
         name="Tripo3D API Key",
         subtype="PASSWORD",
         description="Persistent Tripo3D API Key (https://platform.tripo3d.ai/)",
-        default=""
+        default="",
+        update=_persist_credentials,
     )
     meshy_api_key: bpy.props.StringProperty(
         name="Meshy.ai API Key",
         subtype="PASSWORD",
         description="Persistent Meshy.ai API Key (https://www.meshy.ai/settings/api)",
-        default=""
+        default="",
+        update=_persist_credentials,
     )
     openai_api_key: bpy.props.StringProperty(
         name="OpenAI API Key",
         subtype="PASSWORD",
         description="Persistent OpenAI API Key (separate from ChatGPT Plus — get at platform.openai.com/api-keys)",
-        default=""
+        default="",
+        update=_persist_credentials,
     )
 
     def draw(self, context):
@@ -6137,6 +6213,12 @@ def register():
     bpy.utils.register_class(BLENDERMCP_OT_StartServer)
     bpy.utils.register_class(BLENDERMCP_OT_StopServer)
     bpy.utils.register_class(BLENDERMCP_OT_OpenTerms)
+
+    # Restore credentials from JSON sidecar (in case userpref.blend lost them)
+    try:
+        _load_credentials_from_sidecar()
+    except Exception as e:
+        print(f"[blender-mcp] credential restore on register failed: {e}")
 
     print("BlenderMCP addon registered")
 

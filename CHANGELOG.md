@@ -6,6 +6,38 @@ This is an actively maintained community fork of [ahujasid/blender-mcp](https://
 
 ---
 
+## [1.10.2+fork.1] — 2026-04-28
+
+**Critical bug fix**: API keys were getting wiped every time the addon reloaded. Even with Blender's `use_preferences_save=True`, AddonPreferences StringProperty changes weren't being flushed to `userpref.blend` synchronously — the in-memory value disappeared during addon disable/re-enable before it ever hit disk.
+
+### Fixed
+
+- **Credentials now persist across addon reloads, Blender restarts, and even Blender crashes.** Two layers of defense:
+  1. **`update=` callback on every credential StringProperty** calls `bpy.ops.wm.save_userpref()` immediately on change, so `userpref.blend` reflects the new value within milliseconds.
+  2. **JSON sidecar at `~/.blendermcp_credentials.json`** (mode 0600) written atomically on every change. On `register()`, the addon reads this sidecar and re-populates any empty AddonPreferences fields. Survives even nuclear cases where `userpref.blend` gets corrupted or rewritten by another addon.
+
+This affected all 8 credential fields:
+- `sketchfab_api_key`, `hyper3d_api_key`
+- `hunyuan3d_secret_id`, `hunyuan3d_secret_key`, `hunyuan3d_api_url`
+- `tripo3d_api_key`, `meshy_api_key`, `openai_api_key`
+
+### Why it happened
+
+Blender's `AddonPreferences.StringProperty` only flushes to `userpref.blend` on:
+- Preferences window close
+- Explicit `bpy.ops.wm.save_userpref()` call
+- Blender's own auto-save heuristic (which doesn't fire on every keystroke)
+
+Our `addon_disable() → reload → addon_enable()` cycle (used every time we patch `addon.py`) tears down the AddonPreferences class **before** the heuristic auto-save kicks in. Result: in-memory value is destroyed without ever reaching disk.
+
+The `update=` callback fixes this by saving on every commit (Enter key, focus loss). The JSON sidecar provides a safety net for cases where `save_userpref()` itself fails or `userpref.blend` is being concurrently rewritten.
+
+### Migration
+
+Re-enter your API keys ONE more time after upgrading. They'll persist forever after. The sidecar starts empty until you save the first key.
+
+---
+
 ## [1.10.1+fork.1] — 2026-04-28
 
 Important capability discovery — Codex CLI's `$imagegen` skill (model `gpt-image-2`) **counts against ChatGPT subscription quota, not separate OpenAI API billing**. Wired up as a parallel path to `generate_image_openai` and now the **preferred default** for users with a ChatGPT Plus/Pro subscription + Codex CLI.
