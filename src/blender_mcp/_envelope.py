@@ -76,7 +76,7 @@ def tool_envelope(fn: Callable) -> Callable:
         try:
             result = fn(*args, **kwargs)
         except ToolError as e:
-            logger.info(f"{fn.__name__} returned ToolError: {e.code}: {e.hint}")
+            logger.info(f"{fn.__name__} returned ToolError: {e.code.value}: {e.hint}")
             return _tool_response(
                 ok=False,
                 error={"code": e.code, "hint": e.hint, "detail": e.detail},
@@ -88,12 +88,18 @@ def tool_envelope(fn: Callable) -> Callable:
                 ok=False,
                 error=_format_error(fn.__name__, e),
             )
-        # Already-an-envelope passthrough: parse to confirm shape, else wrap
+        # Already-an-envelope passthrough: parse to confirm shape, else wrap.
+        # Require ok to be a real bool AND the matching companion key to be
+        # present, so we don't silently pass through fake-looking JSON strings
+        # that happen to have a top-level "ok" key for unrelated reasons.
         if isinstance(result, str):
             try:
                 parsed = json.loads(result)
-                if isinstance(parsed, dict) and "ok" in parsed:
-                    return result
+                if isinstance(parsed, dict) and isinstance(parsed.get("ok"), bool):
+                    if parsed["ok"] and "data" in parsed:
+                        return result
+                    if not parsed["ok"] and "error" in parsed:
+                        return result
             except json.JSONDecodeError:
                 pass
             return _tool_response(ok=True, data=result)
