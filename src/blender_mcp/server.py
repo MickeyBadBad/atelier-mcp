@@ -1862,9 +1862,9 @@ def _process_bbox(original_bbox: list[float] | list[int] | None) -> list[int] | 
     return [int(float(i) / max(original_bbox) * 100) for i in original_bbox] if original_bbox else None
 
 @tool_envelope
-@telemetry_tool("generate_hyper3d_model_via_text")
+@telemetry_tool("generate_hyper3d_text_to_3d")
 @mcp.tool()
-def generate_hyper3d_model_via_text(
+def generate_hyper3d_text_to_3d(
     ctx: Context,
     text_prompt: str,
     bbox_condition: list[float]=None
@@ -1895,9 +1895,9 @@ def generate_hyper3d_model_via_text(
     return result
 
 @tool_envelope
-@telemetry_tool("generate_hyper3d_model_via_images")
+@telemetry_tool("generate_hyper3d_image_to_3d")
 @mcp.tool()
-def generate_hyper3d_model_via_images(
+def generate_hyper3d_image_to_3d(
     ctx: Context,
     input_image_paths: list[str]=None,
     input_image_urls: list[str]=None,
@@ -1964,9 +1964,9 @@ def generate_hyper3d_model_via_images(
     return result
 
 @tool_envelope
-@telemetry_tool("poll_rodin_job_status")
+@telemetry_tool("poll_hyper3d_job_status")
 @mcp.tool()
-def poll_rodin_job_status(
+def poll_hyper3d_job_status(
     ctx: Context,
     subscription_key: str=None,
     request_id: str=None,
@@ -2001,13 +2001,13 @@ def poll_rodin_job_status(
         kwargs = {
             "request_id": request_id,
         }
-    result = blender.send_command("poll_rodin_job_status", kwargs)
+    result = blender.send_command("poll_hyper3d_job_status", kwargs)
     return result
 
 @tool_envelope
-@telemetry_tool("import_generated_asset")
+@telemetry_tool("import_hyper3d_asset")
 @mcp.tool()
-def import_generated_asset(
+def import_hyper3d_asset(
     ctx: Context,
     name: str,
     task_uuid: str=None,
@@ -2032,7 +2032,7 @@ def import_generated_asset(
         kwargs["task_uuid"] = task_uuid
     elif request_id:
         kwargs["request_id"] = request_id
-    result = blender.send_command("import_generated_asset", kwargs)
+    result = blender.send_command("import_hyper3d_asset", kwargs)
     return result
 
 @tool_envelope
@@ -2103,7 +2103,7 @@ def poll_hunyuan_job_status(
 
 @tool_envelope
 @mcp.tool()
-def import_generated_asset_hunyuan(
+def import_hunyuan3d_asset(
     ctx: Context,
     name: str,
     zip_file_url: str,
@@ -2123,7 +2123,7 @@ def import_generated_asset_hunyuan(
     }
     if zip_file_url:
         kwargs["zip_file_url"] = zip_file_url
-    result = blender.send_command("import_generated_asset_hunyuan", kwargs)
+    result = blender.send_command("import_hunyuan3d_asset", kwargs)
     return result
 
 
@@ -2159,16 +2159,16 @@ def asset_creation_strategy() -> str:
             If Hyper3D is enabled:
             - For objects/models, do the following steps:
                 1. Create the model generation task
-                    - Use generate_hyper3d_model_via_images() if image(s) is/are given
-                    - Use generate_hyper3d_model_via_text() if generating 3D asset using text prompt
+                    - Use generate_hyper3d_image_to_3d() if image(s) is/are given
+                    - Use generate_hyper3d_text_to_3d() if generating 3D asset using text prompt
                     If key type is free_trial and insufficient balance error returned, tell the user that the free trial key can only generated limited models everyday, they can choose to:
                     - Wait for another day and try again
                     - Go to hyper3d.ai to find out how to get their own API key
                     - Go to fal.ai to get their own private API key
                 2. Poll the status
-                    - Use poll_rodin_job_status() to check if the generation task has completed or failed
+                    - Use poll_hyper3d_job_status() to check if the generation task has completed or failed
                 3. Import the asset
-                    - Use import_generated_asset() to import the generated GLB model the asset
+                    - Use import_hyper3d_asset() to import the generated GLB model the asset
                 4. After importing the asset, ALWAYS check the world_bounding_box of the imported mesh, and adjust the mesh's location and size
                     Adjust the imported mesh's location, scale, rotation, so that the mesh is on the right spot.
 
@@ -2190,7 +2190,7 @@ def asset_creation_strategy() -> str:
                         2. Poll the status
                             - Use poll_hunyuan_job_status() to check if the generation task has completed or failed
                         3. Import the asset
-                            - Use import_generated_asset_hunyuan() to import the generated OBJ model the asset
+                            - Use import_hunyuan3d_asset() to import the generated OBJ model the asset
                     if Hunyuan3D mode is "LOCAL_API":
                         - For objects/models, do the following steps:
                         1. Create the model generation task

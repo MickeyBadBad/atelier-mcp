@@ -543,8 +543,8 @@ class BlenderMCPServer:
         if bpy.context.scene.blendermcp_use_hyper3d:
             polyhaven_handlers = {
                 "create_rodin_job": self.create_rodin_job,
-                "poll_rodin_job_status": self.poll_rodin_job_status,
-                "import_generated_asset": self.import_generated_asset,
+                "poll_hyper3d_job_status": self.poll_hyper3d_job_status,
+                "import_hyper3d_asset": self.import_hyper3d_asset,
             }
             handlers.update(polyhaven_handlers)
 
@@ -562,7 +562,7 @@ class BlenderMCPServer:
             hunyuan_handlers = {
                 "create_hunyuan_job": self.create_hunyuan_job,
                 "poll_hunyuan_job_status": self.poll_hunyuan_job_status,
-                "import_generated_asset_hunyuan": self.import_generated_asset_hunyuan
+                "import_hunyuan3d_asset": self.import_hunyuan3d_asset
             }
             handlers.update(hunyuan_handlers)
 
@@ -3351,12 +3351,12 @@ class BlenderMCPServer:
             )
         elif chosen == "hyper3d":
             # Hyper3D requires the create_rodin_job command (legacy path).
-            # We surface a hint to call generate_hyper3d_model_via_text via
+            # We surface a hint to call generate_hyper3d_text_to_3d via
             # the existing MCP wrapper.
             return {"chosen_provider": "hyper3d",
                     "fallback_required": True,
                     "message": "generate_3d_smart selected Hyper3D Rodin. "
-                               "Call generate_hyper3d_model_via_text(prompt=...) directly — "
+                               "Call generate_hyper3d_text_to_3d(prompt=...) directly — "
                                "Rodin's two-stage flow needs explicit polling.",
                     "estimated_cost_credits": estimated_cost}
         elif chosen == "hunyuan3d":
@@ -4546,7 +4546,7 @@ class BlenderMCPServer:
         except Exception as e:
             return {"error": str(e)}
 
-    def poll_rodin_job_status(self, *args, **kwargs):
+    def poll_hyper3d_job_status(self, *args, **kwargs):
         match bpy.context.scene.blendermcp_hyper3d_mode:
             case "MAIN_SITE":
                 return self.poll_rodin_job_status_main_site(*args, **kwargs)
@@ -4655,7 +4655,7 @@ class BlenderMCPServer:
 
         return mesh_obj
 
-    def import_generated_asset(self, *args, **kwargs):
+    def import_hyper3d_asset(self, *args, **kwargs):
         match bpy.context.scene.blendermcp_hyper3d_mode:
             case "MAIN_SITE":
                 return self.import_generated_asset_main_site(*args, **kwargs)
@@ -5559,10 +5559,10 @@ class BlenderMCPServer:
         except Exception as e:
             return {"error": str(e)}
 
-    def import_generated_asset_hunyuan(self, *args, **kwargs):
-        return self.import_generated_asset_hunyuan_ai(*args, **kwargs)
-            
-    def import_generated_asset_hunyuan_ai(self, name: str , zip_file_url: str):
+    def import_hunyuan3d_asset(self, *args, **kwargs):
+        return self.import_hunyuan3d_asset_ai(*args, **kwargs)
+
+    def import_hunyuan3d_asset_ai(self, name: str , zip_file_url: str):
         if not zip_file_url:
             return {"error": "Zip file not found"}
         
