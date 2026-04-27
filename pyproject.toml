@@ -1,17 +1,47 @@
 [project]
 name = "blender-mcp"
-version = "1.5.5"
-description = "Blender integration through the Model Context Protocol"
+version = "1.6.0+fork.1"
+description = "Drive Blender 4.x/5.x with Claude AI, Cursor, and other MCP clients — actively maintained fork with PBR textures, Sketchfab/PolyHaven/Hyper3D integration, and design-workflow tools"
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [
-    {name = "Your Name", email = "your.email@example.com"}
+    {name = "BlenderMCP Fork Maintainers"},
+    {name = "Siddharth Ahuja (original)"},
+]
+keywords = [
+    "blender",
+    "mcp",
+    "model-context-protocol",
+    "claude",
+    "claude-ai",
+    "claude-code",
+    "cursor",
+    "ai-3d-modeling",
+    "ai-3d",
+    "blender-python",
+    "blender-addon",
+    "polyhaven",
+    "sketchfab",
+    "hyper3d",
+    "rodin",
+    "interior-design",
+    "architectural-visualization",
+    "pbr",
+    "hdri",
 ]
 license = {text = "MIT"}
 classifiers = [
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
+    "Topic :: Multimedia :: Graphics :: 3D Modeling",
+    "Topic :: Multimedia :: Graphics :: 3D Rendering",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Intended Audience :: Developers",
+    "Intended Audience :: End Users/Desktop",
 ]
 dependencies = [
     "mcp[cli]>=1.3.0",
@@ -30,5 +60,7 @@ build-backend = "setuptools.build_meta"
 package-dir = {"" = "src"}
 
 [project.urls]
-"Homepage" = "https://github.com/yourusername/blender-mcp"
-"Bug Tracker" = "https://github.com/yourusername/blender-mcp/issues"
+"Homepage" = "https://github.com/MickeyBadBad/blender-mcp"
+"Bug Tracker" = "https://github.com/MickeyBadBad/blender-mcp/issues"
+"Changelog" = "https://github.com/MickeyBadBad/blender-mcp/blob/develop/CHANGELOG.md"
+"Upstream" = "https://github.com/ahujasid/blender-mcp"
