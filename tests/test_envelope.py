@@ -1,10 +1,12 @@
 """Unit tests for the tool envelope helpers."""
 import json
+import pytest
 from blender_mcp._envelope import (
     ErrorCode,
     ToolError,
     _tool_response,
     tool_envelope,
+    _check_addon_result,
 )
 
 
@@ -113,3 +115,39 @@ def test_get_polyhaven_status_handles_addon_disconnect(mock_blender_connection):
     assert parsed["ok"] is False
     assert parsed["error"]["code"] == "STATE_REQUIRED"
     assert "Connect to Claude" in parsed["error"]["hint"]
+
+
+def test_check_addon_result_passes_through_normal_dict():
+    result = {"foo": "bar", "count": 3}
+    out = _check_addon_result(result)
+    assert out is result
+
+
+def test_check_addon_result_passes_through_non_dict():
+    out = _check_addon_result(["a", "b"])
+    assert out == ["a", "b"]
+
+
+def test_check_addon_result_raises_state_required_on_load_first():
+    with pytest.raises(ToolError) as exc_info:
+        _check_addon_result({"error": "Call download_polyhaven_asset to load an HDRI first"})
+    assert exc_info.value.code is ErrorCode.STATE_REQUIRED
+    assert "load" in exc_info.value.hint.lower()
+
+
+def test_check_addon_result_raises_bad_input_on_required_param():
+    with pytest.raises(ToolError) as exc_info:
+        _check_addon_result({"error": "custom_hex='#RRGGBB' is required"})
+    assert exc_info.value.code is ErrorCode.BAD_INPUT
+
+
+def test_check_addon_result_raises_internal_on_generic_error():
+    with pytest.raises(ToolError) as exc_info:
+        _check_addon_result({"error": "Something went sideways"})
+    assert exc_info.value.code is ErrorCode.INTERNAL
+
+
+def test_check_addon_result_ignores_empty_error_field():
+    result = {"error": "", "data": {"x": 1}}
+    out = _check_addon_result(result)
+    assert out is result  # empty string is falsy

@@ -16,7 +16,7 @@ from urllib.parse import urlparse
 # Import telemetry
 from .telemetry import record_startup, get_telemetry
 from .telemetry_decorator import telemetry_tool
-from ._envelope import tool_envelope, ToolError, ErrorCode, _tool_response
+from ._envelope import tool_envelope, ToolError, ErrorCode, _tool_response, _check_addon_result
 from ._errors import _format_error
 
 # Configure logging
@@ -286,7 +286,7 @@ def get_scene_info(ctx: Context) -> str:
     and renamed APIs all drift between major versions.
     """
     blender = get_blender_connection()
-    result = blender.send_command("get_scene_info")
+    result = _check_addon_result(blender.send_command("get_scene_info"))
     return result
 
 @tool_envelope
@@ -300,7 +300,7 @@ def get_object_info(ctx: Context, object_name: str) -> str:
     - object_name: The name of the object to get information about
     """
     blender = get_blender_connection()
-    result = blender.send_command("get_object_info", {"name": object_name})
+    result = _check_addon_result(blender.send_command("get_object_info", {"name": object_name}))
     return result
 
 @telemetry_tool("get_viewport_screenshot")
@@ -411,12 +411,12 @@ def verify_object_grounded(
     - max_samples: Cap on raycasts (default 500).
     """
     blender = get_blender_connection()
-    result = blender.send_command("verify_object_grounded", {
+    result = _check_addon_result(blender.send_command("verify_object_grounded", {
         "object_name": object_name,
         "ground_name": ground_name,
         "slice_height": slice_height,
         "max_samples": max_samples,
-    })
+    }))
     return result
 
 
@@ -452,14 +452,14 @@ def apply_material_color(
     - emission_strength: Emission watts/m^2 multiplier (0..many)
     """
     blender = get_blender_connection()
-    result = blender.send_command("apply_material_color", {
+    result = _check_addon_result(blender.send_command("apply_material_color", {
         "object_name": object_name,
         "hex_color": hex_color,
         "roughness": roughness,
         "metallic": metallic,
         "emission_color": emission_color,
         "emission_strength": emission_strength,
-    })
+    }))
     return result
 
 
@@ -486,12 +486,12 @@ def place_on_ground(
     - target_xy: If provided ([x, y]), center the bbox there (overrides center_xy)
     """
     blender = get_blender_connection()
-    result = blender.send_command("place_on_ground", {
+    result = _check_addon_result(blender.send_command("place_on_ground", {
         "object_name": object_name,
         "ground_z": ground_z,
         "center_xy": center_xy,
         "target_xy": target_xy,
-    })
+    }))
     return result
 
 
@@ -524,7 +524,7 @@ def render_image(
     - look: 'Medium High Contrast' (default), 'None', 'High Contrast', etc.
     """
     blender = get_blender_connection()
-    result = blender.send_command("render_image", {
+    result = _check_addon_result(blender.send_command("render_image", {
         "filepath": filepath,
         "resolution": resolution,
         "samples": samples,
@@ -532,7 +532,7 @@ def render_image(
         "use_gpu": use_gpu,
         "view_transform": view_transform,
         "look": look,
-    })
+    }))
     return result
 
 
@@ -564,14 +564,14 @@ def set_camera_view(
                      (useful to compose toward an upper feature like a roof)
     """
     blender = get_blender_connection()
-    result = blender.send_command("set_camera_view", {
+    result = _check_addon_result(blender.send_command("set_camera_view", {
         "target_object": target_object,
         "target_xyz": target_xyz,
         "angle": angle,
         "distance": distance,
         "lens": lens,
         "height_offset": height_offset,
-    })
+    }))
     return result
 
 
@@ -612,7 +612,7 @@ def mesh_cleanup(
     Returns before/after vertex/edge/face counts.
     """
     blender = get_blender_connection()
-    result = blender.send_command("mesh_cleanup", {
+    result = _check_addon_result(blender.send_command("mesh_cleanup", {
         "object_name": object_name,
         "merge_distance": merge_distance,
         "decimate_ratio": decimate_ratio,
@@ -620,7 +620,7 @@ def mesh_cleanup(
         "remove_loose": remove_loose,
         "fix_non_manifold": fix_non_manifold,
         "triangulate": triangulate,
-    })
+    }))
     return result
 
 
@@ -663,7 +663,7 @@ def boolean_cutout(
       boolean_cutout('WallA', 'box', location=[0, 0, 1.0], size=[0.8, 0.5, 2.0])
     """
     blender = get_blender_connection()
-    result = blender.send_command("boolean_cutout", {
+    result = _check_addon_result(blender.send_command("boolean_cutout", {
         "target_object": target_object,
         "cutter_shape": cutter_shape,
         "location": list(location),
@@ -673,7 +673,7 @@ def boolean_cutout(
         "operation": operation,
         "solver": solver,
         "apply": apply,
-    })
+    }))
     return result
 
 
@@ -716,7 +716,7 @@ def frame_camera_to_objects(
     if isinstance(targets, str):
         targets = [targets]
     blender = get_blender_connection()
-    result = blender.send_command("frame_camera_to_objects", {
+    result = _check_addon_result(blender.send_command("frame_camera_to_objects", {
         "targets": targets,
         "orbit_deg": orbit_deg,
         "elevation_deg": elevation_deg,
@@ -725,7 +725,7 @@ def frame_camera_to_objects(
         "composition": composition,
         "dof_target": dof_target,
         "f_stop": f_stop,
-    })
+    }))
     return result
 
 
@@ -774,14 +774,14 @@ def setup_lighting(
     Returns the created light names + key parameters.
     """
     blender = get_blender_connection()
-    result = blender.send_command("setup_lighting", {
+    result = _check_addon_result(blender.send_command("setup_lighting", {
         "mood": mood,
         "target_object": target_object,
         "target_xyz": target_xyz,
         "area_m2": area_m2,
         "ceiling_height_m": ceiling_height_m,
         "remove_existing_lights": remove_existing_lights,
-    })
+    }))
     return result
 
 
@@ -825,7 +825,7 @@ def apply_archviz_material(
     - library: 'auto' (default) | 'polyhaven'
     """
     blender = get_blender_connection()
-    result = blender.send_command("apply_archviz_material", {
+    result = _check_addon_result(blender.send_command("apply_archviz_material", {
         "object_name": object_name,
         "genre": genre,
         "color_hint": color_hint,
@@ -834,7 +834,7 @@ def apply_archviz_material(
         "custom_hex": custom_hex,
         "roughness": roughness,
         "library": library,
-    })
+    }))
     return result
 
 
@@ -847,7 +847,7 @@ def list_archviz_genres(ctx: Context) -> str:
     asset IDs. Use this for discovery before calling apply_archviz_material.
     """
     blender = get_blender_connection()
-    result = blender.send_command("list_archviz_genres", {})
+    result = _check_addon_result(blender.send_command("list_archviz_genres", {}))
     return result
 
 
@@ -857,7 +857,7 @@ def get_ambientcg_status(ctx: Context) -> str:
     """Check if ambientCG (CC0 PBR texture library, ~2000+ materials) is
     reachable. No API key required — public CC0 service."""
     blender = get_blender_connection()
-    result = blender.send_command("get_ambientcg_status", {})
+    result = _check_addon_result(blender.send_command("get_ambientcg_status", {}))
     return result
 
 
@@ -885,12 +885,12 @@ def search_ambientcg_assets(
     Returns asset_ids + categories + tags + available resolutions.
     """
     blender = get_blender_connection()
-    result = blender.send_command("search_ambientcg_assets", {
+    result = _check_addon_result(blender.send_command("search_ambientcg_assets", {
         "query": query,
         "asset_type": asset_type,
         "category": category,
         "limit": limit,
-    })
+    }))
     return result
 
 
@@ -917,11 +917,11 @@ def download_ambientcg_asset(
     Returns the created material name + which maps were loaded.
     """
     blender = get_blender_connection()
-    result = blender.send_command("download_ambientcg_asset", {
+    result = _check_addon_result(blender.send_command("download_ambientcg_asset", {
         "asset_id": asset_id,
         "resolution": resolution,
         "file_format": file_format,
-    })
+    }))
     return result
 
 
@@ -970,7 +970,7 @@ def scatter_on_surface(
     if isinstance(instance_objects, str):
         instance_objects = [instance_objects]
     blender = get_blender_connection()
-    result = blender.send_command("scatter_on_surface", {
+    result = _check_addon_result(blender.send_command("scatter_on_surface", {
         "surface_object": surface_object,
         "instance_objects": instance_objects,
         "density": density,
@@ -982,7 +982,7 @@ def scatter_on_surface(
         "align_to_normal": align_to_normal,
         "parent_to_surface": parent_to_surface,
         "collection_name": collection_name,
-    })
+    }))
     return result
 
 
@@ -1022,7 +1022,7 @@ def array_duplicate(
              False keeps it live for tweaking
     """
     blender = get_blender_connection()
-    result = blender.send_command("array_duplicate", {
+    result = _check_addon_result(blender.send_command("array_duplicate", {
         "source_object": source_object,
         "mode": mode,
         "count": count,
@@ -1031,7 +1031,7 @@ def array_duplicate(
         "axis": axis,
         "center": list(center) if center is not None else None,
         "apply": apply,
-    })
+    }))
     return result
 
 
@@ -1068,7 +1068,7 @@ def curve_extrude_profile(
     - location: object origin offset
     """
     blender = get_blender_connection()
-    result = blender.send_command("curve_extrude_profile", {
+    result = _check_addon_result(blender.send_command("curve_extrude_profile", {
         "name": name,
         "path_points": [list(p) for p in path_points],
         "profile": profile,
@@ -1078,7 +1078,7 @@ def curve_extrude_profile(
         "smooth": smooth,
         "convert_to_mesh": convert_to_mesh,
         "location": list(location),
-    })
+    }))
     return result
 
 
@@ -1114,7 +1114,7 @@ def quick_export(
     - draco: GLB Draco mesh compression
     """
     blender = get_blender_connection()
-    result = blender.send_command("quick_export", {
+    result = _check_addon_result(blender.send_command("quick_export", {
         "filepath": filepath,
         "objects": objects,
         "format": format,
@@ -1124,7 +1124,7 @@ def quick_export(
         "axis_forward": axis_forward,
         "axis_up": axis_up,
         "draco": draco,
-    })
+    }))
     return result
 
 
@@ -1148,10 +1148,10 @@ def set_world_hdri_rotation(
     Requires an HDRI to be already loaded (e.g. via download_polyhaven_asset).
     """
     blender = get_blender_connection()
-    result = blender.send_command("set_world_hdri_rotation", {
+    result = _check_addon_result(blender.send_command("set_world_hdri_rotation", {
         "z_rotation_deg": z_rotation_deg,
         "strength": strength,
-    })
+    }))
     return result
 
 
@@ -1167,7 +1167,7 @@ def get_tripo3d_status(ctx: Context) -> str:
     """Check if Tripo3D is configured and reachable. Tripo3D is a top-tier
     text-to-3D / image-to-3D service with full PBR output."""
     blender = get_blender_connection()
-    result = blender.send_command("get_tripo3d_status", {})
+    result = _check_addon_result(blender.send_command("get_tripo3d_status", {}))
     return result
 
 
@@ -1201,7 +1201,7 @@ def generate_tripo3d_text_to_3d(
     Cost estimate: 3-10 credits per generation (~$0.03-$0.10).
     """
     blender = get_blender_connection()
-    result = blender.send_command("generate_tripo3d_text_to_3d", {
+    result = _check_addon_result(blender.send_command("generate_tripo3d_text_to_3d", {
         "prompt": prompt,
         "model_version": model_version,
         "texture": texture,
@@ -1209,7 +1209,7 @@ def generate_tripo3d_text_to_3d(
         "face_limit": face_limit,
         "target_size": target_size,
         "max_wait_seconds": max_wait_seconds,
-    })
+    }))
     return result
 
 
@@ -1236,14 +1236,14 @@ def generate_tripo3d_image_to_3d(
     - max_wait_seconds: polling timeout
     """
     blender = get_blender_connection()
-    result = blender.send_command("generate_tripo3d_image_to_3d", {
+    result = _check_addon_result(blender.send_command("generate_tripo3d_image_to_3d", {
         "image_url": image_url,
         "model_version": model_version,
         "texture": texture,
         "pbr": pbr,
         "target_size": target_size,
         "max_wait_seconds": max_wait_seconds,
-    })
+    }))
     return result
 
 
@@ -1253,7 +1253,7 @@ def get_meshy_status(ctx: Context) -> str:
     """Check if Meshy.ai is configured and reachable. Meshy.ai is a top-tier
     text-to-3D / image-to-3D service with strong all-around quality."""
     blender = get_blender_connection()
-    result = blender.send_command("get_meshy_status", {})
+    result = _check_addon_result(blender.send_command("get_meshy_status", {}))
     return result
 
 
@@ -1293,7 +1293,7 @@ def generate_meshy_text_to_3d(
     Use refine=False for cheap iteration (20 credits).
     """
     blender = get_blender_connection()
-    result = blender.send_command("generate_meshy_text_to_3d", {
+    result = _check_addon_result(blender.send_command("generate_meshy_text_to_3d", {
         "prompt": prompt,
         "ai_model": ai_model,
         "topology": topology,
@@ -1302,7 +1302,7 @@ def generate_meshy_text_to_3d(
         "refine": refine,
         "target_size": target_size,
         "max_wait_seconds": max_wait_seconds,
-    })
+    }))
     return result
 
 
@@ -1332,14 +1332,14 @@ def generate_meshy_image_to_3d(
     Cost (Meshy-6): 30 credits for image-to-3D with texturing.
     """
     blender = get_blender_connection()
-    result = blender.send_command("generate_meshy_image_to_3d", {
+    result = _check_addon_result(blender.send_command("generate_meshy_image_to_3d", {
         "image_url": image_url,
         "enable_pbr": enable_pbr,
         "topology": topology,
         "target_polycount": target_polycount,
         "target_size": target_size,
         "max_wait_seconds": max_wait_seconds,
-    })
+    }))
     return result
 
 
@@ -1357,7 +1357,7 @@ def get_usage_report(ctx: Context) -> str:
     generations.
     """
     blender = get_blender_connection()
-    result = blender.send_command("get_usage_report", {})
+    result = _check_addon_result(blender.send_command("get_usage_report", {}))
     return result
 
 
@@ -1375,9 +1375,9 @@ def set_usage_budget(ctx: Context, service: str, max_value: float) -> str:
     Counters reset when the addon is re-registered (Disable → Enable).
     """
     blender = get_blender_connection()
-    result = blender.send_command("set_usage_budget", {
+    result = _check_addon_result(blender.send_command("set_usage_budget", {
         "service": service, "max_value": max_value,
-    })
+    }))
     return result
 
 
@@ -1387,7 +1387,7 @@ def reset_usage_counters(ctx: Context) -> str:
     """Reset all session usage counters back to zero. Useful at the start
     of a new design sprint. Doesn't change configured budget caps."""
     blender = get_blender_connection()
-    result = blender.send_command("reset_usage_counters", {})
+    result = _check_addon_result(blender.send_command("reset_usage_counters", {}))
     return result
 
 
@@ -1440,14 +1440,14 @@ def generate_3d_smart(
     care about the result + cost discipline.
     """
     blender = get_blender_connection()
-    result = blender.send_command("generate_3d_smart", {
+    result = _check_addon_result(blender.send_command("generate_3d_smart", {
         "prompt": prompt, "quality": quality,
         "max_credits": max_credits,
         "prefer_provider": prefer_provider,
         "target_size": target_size,
         "max_wait_seconds": max_wait_seconds,
         "reference_image_url": reference_image_url,
-    })
+    }))
     return result
 
 
@@ -1457,7 +1457,7 @@ def get_openai_status(ctx: Context) -> str:
     """Verify OpenAI API key + connectivity for image generation
     (DALL-E 3 / gpt-image-1)."""
     blender = get_blender_connection()
-    result = blender.send_command("get_openai_status", {})
+    result = _check_addon_result(blender.send_command("get_openai_status", {}))
     return result
 
 
@@ -1504,11 +1504,11 @@ def generate_image_openai(
     credits required at platform.openai.com.
     """
     blender = get_blender_connection()
-    result = blender.send_command("generate_image_openai", {
+    result = _check_addon_result(blender.send_command("generate_image_openai", {
         "prompt": prompt, "model": model, "size": size,
         "quality": quality, "save_to": save_to,
         "n": n, "style": style,
-    })
+    }))
     return result
 
 
@@ -1517,7 +1517,7 @@ def generate_image_openai(
 def get_codex_status(ctx: Context) -> str:
     """Verify Codex CLI is installed and logged in via ChatGPT."""
     blender = get_blender_connection()
-    result = blender.send_command("get_codex_status", {})
+    result = _check_addon_result(blender.send_command("get_codex_status", {}))
     return result
 
 
@@ -1570,12 +1570,12 @@ def generate_image_codex(
     3. Verify with `get_codex_status`
     """
     blender = get_blender_connection()
-    result = blender.send_command("generate_image_codex", {
+    result = _check_addon_result(blender.send_command("generate_image_codex", {
         "prompt": prompt, "save_to": save_to, "size": size,
         "reference_images": reference_images,
         "style": style, "transparent": transparent,
         "timeout_seconds": timeout_seconds,
-    })
+    }))
     return result
 
 
@@ -1596,7 +1596,7 @@ def check_services(ctx: Context) -> str:
     you can actually use right now.
     """
     blender = get_blender_connection()
-    result = blender.send_command("check_services", {})
+    result = _check_addon_result(blender.send_command("check_services", {}))
     return result
 
 
@@ -1643,7 +1643,7 @@ def get_polyhaven_categories(ctx: Context, asset_type: str = "hdris") -> str:
             hint="PolyHaven integration is disabled. Enable it in the BlenderMCP sidebar, then retry.",
             detail="_polyhaven_enabled is False",
         )
-    result = blender.send_command("get_polyhaven_categories", {"asset_type": asset_type})
+    result = _check_addon_result(blender.send_command("get_polyhaven_categories", {"asset_type": asset_type}))
     return result
 
 @tool_envelope
@@ -1664,10 +1664,10 @@ def search_polyhaven_assets(
     Returns a list of matching assets with basic information.
     """
     blender = get_blender_connection()
-    result = blender.send_command("search_polyhaven_assets", {
+    result = _check_addon_result(blender.send_command("search_polyhaven_assets", {
         "asset_type": asset_type,
         "categories": categories
-    })
+    }))
     return result
 
 @tool_envelope
@@ -1692,12 +1692,12 @@ def download_polyhaven_asset(
     Returns a message indicating success or failure.
     """
     blender = get_blender_connection()
-    result = blender.send_command("download_polyhaven_asset", {
+    result = _check_addon_result(blender.send_command("download_polyhaven_asset", {
         "asset_id": asset_id,
         "asset_type": asset_type,
         "resolution": resolution,
         "file_format": file_format
-    })
+    }))
     return result
 
 @tool_envelope
@@ -1719,10 +1719,10 @@ def set_texture(
     """
     # Get the global connection
     blender = get_blender_connection()
-    result = blender.send_command("set_texture", {
+    result = _check_addon_result(blender.send_command("set_texture", {
         "object_name": object_name,
         "texture_id": texture_id
-    })
+    }))
     return result
 
 @tool_envelope
@@ -1732,7 +1732,7 @@ def get_polyhaven_status(ctx: Context) -> str:
     """Check if PolyHaven integration is enabled. PolyHaven hosts CC0 PBR
     textures, HDRIs, and 3D models — no API key required."""
     blender = get_blender_connection()
-    result = blender.send_command("get_polyhaven_status")
+    result = _check_addon_result(blender.send_command("get_polyhaven_status"))
     return result
 
 @tool_envelope
@@ -1741,7 +1741,7 @@ def get_polyhaven_status(ctx: Context) -> str:
 def get_hyper3d_status(ctx: Context) -> str:
     """Check if Hyper3D Rodin integration is enabled in Blender."""
     blender = get_blender_connection()
-    result = blender.send_command("get_hyper3d_status")
+    result = _check_addon_result(blender.send_command("get_hyper3d_status"))
     return result
 
 @tool_envelope
@@ -1750,7 +1750,7 @@ def get_hyper3d_status(ctx: Context) -> str:
 def get_sketchfab_status(ctx: Context) -> str:
     """Check if Sketchfab integration is enabled in Blender."""
     blender = get_blender_connection()
-    result = blender.send_command("get_sketchfab_status")
+    result = _check_addon_result(blender.send_command("get_sketchfab_status"))
     return result
 
 @tool_envelope
@@ -1776,12 +1776,12 @@ def search_sketchfab_models(
     """
     blender = get_blender_connection()
     logger.info(f"Searching Sketchfab models with query: {query}, categories: {categories}, count: {count}, downloadable: {downloadable}")
-    result = blender.send_command("search_sketchfab_models", {
+    result = _check_addon_result(blender.send_command("search_sketchfab_models", {
         "query": query,
         "categories": categories,
         "count": count,
         "downloadable": downloadable
-    })
+    }))
     return result
 
 @telemetry_tool("download_sketchfab_model")
@@ -1854,11 +1854,11 @@ def download_sketchfab_model(
     """
     blender = get_blender_connection()
     logger.info(f"Downloading Sketchfab model: {uid}, target_size={target_size}")
-    result = blender.send_command("download_sketchfab_model", {
+    result = _check_addon_result(blender.send_command("download_sketchfab_model", {
         "uid": uid,
         "normalize_size": True,  # Always normalize
         "target_size": target_size
-    })
+    }))
     return result
 
 def _process_bbox(original_bbox: list[float] | list[int] | None) -> list[int] | None:
@@ -1890,11 +1890,11 @@ def generate_hyper3d_text_to_3d(
     Returns a message indicating success or failure.
     """
     blender = get_blender_connection()
-    result = blender.send_command("create_rodin_job", {
+    result = _check_addon_result(blender.send_command("create_rodin_job", {
         "text_prompt": text_prompt,
         "images": None,
         "bbox_condition": _process_bbox(bbox_condition),
-    })
+    }))
     succeed = result.get("submit_time", False)
     if succeed:
         return {
@@ -1959,11 +1959,11 @@ def generate_hyper3d_image_to_3d(
             )
         images = input_image_urls.copy()
     blender = get_blender_connection()
-    result = blender.send_command("create_rodin_job", {
+    result = _check_addon_result(blender.send_command("create_rodin_job", {
         "text_prompt": None,
         "images": images,
         "bbox_condition": _process_bbox(bbox_condition),
-    })
+    }))
     succeed = result.get("submit_time", False)
     if succeed:
         return {
@@ -2010,7 +2010,7 @@ def poll_hyper3d_job_status(
         kwargs = {
             "request_id": request_id,
         }
-    result = blender.send_command("poll_hyper3d_job_status", kwargs)
+    result = _check_addon_result(blender.send_command("poll_hyper3d_job_status", kwargs))
     return result
 
 @tool_envelope
@@ -2041,7 +2041,7 @@ def import_hyper3d_asset(
         kwargs["task_uuid"] = task_uuid
     elif request_id:
         kwargs["request_id"] = request_id
-    result = blender.send_command("import_hyper3d_asset", kwargs)
+    result = _check_addon_result(blender.send_command("import_hyper3d_asset", kwargs))
     return result
 
 @tool_envelope
@@ -2049,7 +2049,7 @@ def import_hyper3d_asset(
 def get_hunyuan3d_status(ctx: Context) -> str:
     """Check if Hunyuan3D integration is enabled in Blender."""
     blender = get_blender_connection()
-    result = blender.send_command("get_hunyuan3d_status")
+    result = _check_addon_result(blender.send_command("get_hunyuan3d_status"))
     return result
     
 @tool_envelope
@@ -2074,10 +2074,10 @@ def generate_hunyuan3d_model(
     - Returns error message if the operation fails
     """
     blender = get_blender_connection()
-    result = blender.send_command("create_hunyuan_job", {
+    result = _check_addon_result(blender.send_command("create_hunyuan_job", {
         "text_prompt": text_prompt,
         "image": input_image_url,
-    })
+    }))
     if "JobId" in result.get("Response", {}):
         job_id = result["Response"]["JobId"]
         formatted_job_id = f"job_{job_id}"
@@ -2107,7 +2107,7 @@ def poll_hunyuan_job_status(
     kwargs = {
         "job_id": job_id,
     }
-    result = blender.send_command("poll_hunyuan_job_status", kwargs)
+    result = _check_addon_result(blender.send_command("poll_hunyuan_job_status", kwargs))
     return result
 
 @tool_envelope
@@ -2132,7 +2132,7 @@ def import_hunyuan3d_asset(
     }
     if zip_file_url:
         kwargs["zip_file_url"] = zip_file_url
-    result = blender.send_command("import_hunyuan3d_asset", kwargs)
+    result = _check_addon_result(blender.send_command("import_hunyuan3d_asset", kwargs))
     return result
 
 

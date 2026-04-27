@@ -105,3 +105,30 @@ def tool_envelope(fn: Callable) -> Callable:
             return _tool_response(ok=True, data=result)
         return _tool_response(ok=True, data=result)
     return wrapped
+
+
+def _check_addon_result(result):
+    """Convert addon-side {"error": "..."} dicts into ToolError.
+
+    Used by server.py @mcp.tool wrappers right after send_command. The
+    addon today returns dict-shaped errors for many state-leakage cases
+    (missing HDRI, missing custom_hex, etc.) — this helper turns them
+    into the same envelope error path as live exceptions.
+
+    Heuristics for ErrorCode classification (best-effort):
+      - "first" / "before" / "load" / "configure" / "no key" / "not configured" → STATE_REQUIRED
+      - "required" / "must" / "invalid" / "bad" / "unknown" → BAD_INPUT
+      - else → INTERNAL
+    """
+    if isinstance(result, dict) and result.get("error"):
+        msg = str(result["error"])
+        low = msg.lower()
+        state_signals = ("first", "before", "load", "configure", "no key",
+                         "no api key", "not configured", "not found")
+        input_signals = ("required", "must", "invalid", "bad", "unknown")
+        if any(x in low for x in state_signals):
+            raise ToolError(ErrorCode.STATE_REQUIRED, hint=msg)
+        if any(x in low for x in input_signals):
+            raise ToolError(ErrorCode.BAD_INPUT, hint=msg)
+        raise ToolError(ErrorCode.INTERNAL, hint=msg)
+    return result
