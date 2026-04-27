@@ -438,6 +438,7 @@ def verify_object_grounded(
 # would otherwise require execute_blender_code boilerplate.
 # --------------------------------------------------------------------------
 
+@tool_envelope
 @mcp.tool()
 def apply_material_color(
     ctx: Context,
@@ -463,22 +464,19 @@ def apply_material_color(
     - emission_color: Optional '#RRGGBB' for self-illuminating surfaces
     - emission_strength: Emission watts/m^2 multiplier (0..many)
     """
-    try:
-        blender = get_blender_connection()
-        result = blender.send_command("apply_material_color", {
-            "object_name": object_name,
-            "hex_color": hex_color,
-            "roughness": roughness,
-            "metallic": metallic,
-            "emission_color": emission_color,
-            "emission_strength": emission_strength,
-        })
-        return json.dumps(result, indent=2)
-    except Exception as e:
-        logger.error(f"Error applying material color: {str(e)}")
-        return f"Error applying material color: {str(e)}"
+    blender = get_blender_connection()
+    result = blender.send_command("apply_material_color", {
+        "object_name": object_name,
+        "hex_color": hex_color,
+        "roughness": roughness,
+        "metallic": metallic,
+        "emission_color": emission_color,
+        "emission_strength": emission_strength,
+    })
+    return result
 
 
+@tool_envelope
 @mcp.tool()
 def place_on_ground(
     ctx: Context,
@@ -500,20 +498,17 @@ def place_on_ground(
     - center_xy: If True, also recenter the bbox to (0, 0) on the XY plane
     - target_xy: If provided ([x, y]), center the bbox there (overrides center_xy)
     """
-    try:
-        blender = get_blender_connection()
-        result = blender.send_command("place_on_ground", {
-            "object_name": object_name,
-            "ground_z": ground_z,
-            "center_xy": center_xy,
-            "target_xy": target_xy,
-        })
-        return json.dumps(result, indent=2)
-    except Exception as e:
-        logger.error(f"Error placing on ground: {str(e)}")
-        return f"Error placing on ground: {str(e)}"
+    blender = get_blender_connection()
+    result = blender.send_command("place_on_ground", {
+        "object_name": object_name,
+        "ground_z": ground_z,
+        "center_xy": center_xy,
+        "target_xy": target_xy,
+    })
+    return result
 
 
+@tool_envelope
 @mcp.tool()
 def render_image(
     ctx: Context,
@@ -541,23 +536,20 @@ def render_image(
     - view_transform: 'Filmic' (default), 'Standard', 'AgX', etc.
     - look: 'Medium High Contrast' (default), 'None', 'High Contrast', etc.
     """
-    try:
-        blender = get_blender_connection()
-        result = blender.send_command("render_image", {
-            "filepath": filepath,
-            "resolution": resolution,
-            "samples": samples,
-            "engine": engine,
-            "use_gpu": use_gpu,
-            "view_transform": view_transform,
-            "look": look,
-        })
-        return json.dumps(result, indent=2)
-    except Exception as e:
-        logger.error(f"Error rendering image: {str(e)}")
-        return f"Error rendering image: {str(e)}"
+    blender = get_blender_connection()
+    result = blender.send_command("render_image", {
+        "filepath": filepath,
+        "resolution": resolution,
+        "samples": samples,
+        "engine": engine,
+        "use_gpu": use_gpu,
+        "view_transform": view_transform,
+        "look": look,
+    })
+    return result
 
 
+@tool_envelope
 @mcp.tool()
 def set_camera_view(
     ctx: Context,
@@ -584,26 +576,23 @@ def set_camera_view(
     - height_offset: Raise the look-at point this much above bbox center
                      (useful to compose toward an upper feature like a roof)
     """
-    try:
-        blender = get_blender_connection()
-        result = blender.send_command("set_camera_view", {
-            "target_object": target_object,
-            "target_xyz": target_xyz,
-            "angle": angle,
-            "distance": distance,
-            "lens": lens,
-            "height_offset": height_offset,
-        })
-        return json.dumps(result, indent=2)
-    except Exception as e:
-        logger.error(f"Error setting camera view: {str(e)}")
-        return f"Error setting camera view: {str(e)}"
+    blender = get_blender_connection()
+    result = blender.send_command("set_camera_view", {
+        "target_object": target_object,
+        "target_xyz": target_xyz,
+        "angle": angle,
+        "distance": distance,
+        "lens": lens,
+        "height_offset": height_offset,
+    })
+    return result
 
 
 # --------------------------------------------------------------------------
 # Sprint 2 helpers — generic geometry/lighting/composition wrappers
 # --------------------------------------------------------------------------
 
+@tool_envelope
 @mcp.tool()
 def mesh_cleanup(
     ctx: Context,
@@ -635,23 +624,20 @@ def mesh_cleanup(
 
     Returns before/after vertex/edge/face counts.
     """
-    try:
-        blender = get_blender_connection()
-        result = blender.send_command("mesh_cleanup", {
-            "object_name": object_name,
-            "merge_distance": merge_distance,
-            "decimate_ratio": decimate_ratio,
-            "recalc_normals": recalc_normals,
-            "remove_loose": remove_loose,
-            "fix_non_manifold": fix_non_manifold,
-            "triangulate": triangulate,
-        })
-        return json.dumps(result, indent=2)
-    except Exception as e:
-        logger.error(f"Error cleaning mesh: {str(e)}")
-        return f"Error cleaning mesh: {str(e)}"
+    blender = get_blender_connection()
+    result = blender.send_command("mesh_cleanup", {
+        "object_name": object_name,
+        "merge_distance": merge_distance,
+        "decimate_ratio": decimate_ratio,
+        "recalc_normals": recalc_normals,
+        "remove_loose": remove_loose,
+        "fix_non_manifold": fix_non_manifold,
+        "triangulate": triangulate,
+    })
+    return result
 
 
+@tool_envelope
 @mcp.tool()
 def boolean_cutout(
     ctx: Context,
@@ -689,25 +675,22 @@ def boolean_cutout(
     Example: cut an 80x150cm doorway in 'WallA':
       boolean_cutout('WallA', 'box', location=[0, 0, 1.0], size=[0.8, 0.5, 2.0])
     """
-    try:
-        blender = get_blender_connection()
-        result = blender.send_command("boolean_cutout", {
-            "target_object": target_object,
-            "cutter_shape": cutter_shape,
-            "location": list(location),
-            "size": list(size),
-            "rotation": list(rotation),
-            "cutter_object_name": cutter_object_name,
-            "operation": operation,
-            "solver": solver,
-            "apply": apply,
-        })
-        return json.dumps(result, indent=2)
-    except Exception as e:
-        logger.error(f"Error in boolean_cutout: {str(e)}")
-        return f"Error in boolean_cutout: {str(e)}"
+    blender = get_blender_connection()
+    result = blender.send_command("boolean_cutout", {
+        "target_object": target_object,
+        "cutter_shape": cutter_shape,
+        "location": list(location),
+        "size": list(size),
+        "rotation": list(rotation),
+        "cutter_object_name": cutter_object_name,
+        "operation": operation,
+        "solver": solver,
+        "apply": apply,
+    })
+    return result
 
 
+@tool_envelope
 @mcp.tool()
 def frame_camera_to_objects(
     ctx: Context,
@@ -745,24 +728,21 @@ def frame_camera_to_objects(
     """
     if isinstance(targets, str):
         targets = [targets]
-    try:
-        blender = get_blender_connection()
-        result = blender.send_command("frame_camera_to_objects", {
-            "targets": targets,
-            "orbit_deg": orbit_deg,
-            "elevation_deg": elevation_deg,
-            "focal_mm": focal_mm,
-            "padding": padding,
-            "composition": composition,
-            "dof_target": dof_target,
-            "f_stop": f_stop,
-        })
-        return json.dumps(result, indent=2)
-    except Exception as e:
-        logger.error(f"Error framing camera: {str(e)}")
-        return f"Error framing camera: {str(e)}"
+    blender = get_blender_connection()
+    result = blender.send_command("frame_camera_to_objects", {
+        "targets": targets,
+        "orbit_deg": orbit_deg,
+        "elevation_deg": elevation_deg,
+        "focal_mm": focal_mm,
+        "padding": padding,
+        "composition": composition,
+        "dof_target": dof_target,
+        "f_stop": f_stop,
+    })
+    return result
 
 
+@tool_envelope
 @mcp.tool()
 def setup_lighting(
     ctx: Context,
@@ -806,22 +786,19 @@ def setup_lighting(
 
     Returns the created light names + key parameters.
     """
-    try:
-        blender = get_blender_connection()
-        result = blender.send_command("setup_lighting", {
-            "mood": mood,
-            "target_object": target_object,
-            "target_xyz": target_xyz,
-            "area_m2": area_m2,
-            "ceiling_height_m": ceiling_height_m,
-            "remove_existing_lights": remove_existing_lights,
-        })
-        return json.dumps(result, indent=2)
-    except Exception as e:
-        logger.error(f"Error setting up lighting: {str(e)}")
-        return f"Error setting up lighting: {str(e)}"
+    blender = get_blender_connection()
+    result = blender.send_command("setup_lighting", {
+        "mood": mood,
+        "target_object": target_object,
+        "target_xyz": target_xyz,
+        "area_m2": area_m2,
+        "ceiling_height_m": ceiling_height_m,
+        "remove_existing_lights": remove_existing_lights,
+    })
+    return result
 
 
+@tool_envelope
 @mcp.tool()
 def apply_archviz_material(
     ctx: Context,
@@ -860,24 +837,21 @@ def apply_archviz_material(
     - roughness: Roughness for painted_wall (0..1)
     - library: 'auto' (default) | 'polyhaven'
     """
-    try:
-        blender = get_blender_connection()
-        result = blender.send_command("apply_archviz_material", {
-            "object_name": object_name,
-            "genre": genre,
-            "color_hint": color_hint,
-            "finish": finish,
-            "resolution": resolution,
-            "custom_hex": custom_hex,
-            "roughness": roughness,
-            "library": library,
-        })
-        return json.dumps(result, indent=2)
-    except Exception as e:
-        logger.error(f"Error applying archviz material: {str(e)}")
-        return f"Error applying archviz material: {str(e)}"
+    blender = get_blender_connection()
+    result = blender.send_command("apply_archviz_material", {
+        "object_name": object_name,
+        "genre": genre,
+        "color_hint": color_hint,
+        "finish": finish,
+        "resolution": resolution,
+        "custom_hex": custom_hex,
+        "roughness": roughness,
+        "library": library,
+    })
+    return result
 
 
+@tool_envelope
 @mcp.tool()
 def list_archviz_genres(ctx: Context) -> str:
     """
@@ -885,13 +859,9 @@ def list_archviz_genres(ctx: Context) -> str:
     each with a description, default UV scale, and candidate PolyHaven
     asset IDs. Use this for discovery before calling apply_archviz_material.
     """
-    try:
-        blender = get_blender_connection()
-        result = blender.send_command("list_archviz_genres", {})
-        return json.dumps(result, indent=2)
-    except Exception as e:
-        logger.error(f"Error listing archviz genres: {str(e)}")
-        return f"Error listing archviz genres: {str(e)}"
+    blender = get_blender_connection()
+    result = blender.send_command("list_archviz_genres", {})
+    return result
 
 
 @tool_envelope
@@ -978,6 +948,7 @@ def download_ambientcg_asset(
 # Sprint 3 — scatter / array / curve / export / hdri
 # --------------------------------------------------------------------------
 
+@tool_envelope
 @mcp.tool()
 def scatter_on_surface(
     ctx: Context,
@@ -1017,27 +988,24 @@ def scatter_on_surface(
     """
     if isinstance(instance_objects, str):
         instance_objects = [instance_objects]
-    try:
-        blender = get_blender_connection()
-        result = blender.send_command("scatter_on_surface", {
-            "surface_object": surface_object,
-            "instance_objects": instance_objects,
-            "density": density,
-            "max_count": max_count,
-            "seed": seed,
-            "scale_min": scale_min,
-            "scale_max": scale_max,
-            "rotate_random": rotate_random,
-            "align_to_normal": align_to_normal,
-            "parent_to_surface": parent_to_surface,
-            "collection_name": collection_name,
-        })
-        return json.dumps(result, indent=2)
-    except Exception as e:
-        logger.error(f"Error in scatter_on_surface: {str(e)}")
-        return f"Error in scatter_on_surface: {str(e)}"
+    blender = get_blender_connection()
+    result = blender.send_command("scatter_on_surface", {
+        "surface_object": surface_object,
+        "instance_objects": instance_objects,
+        "density": density,
+        "max_count": max_count,
+        "seed": seed,
+        "scale_min": scale_min,
+        "scale_max": scale_max,
+        "rotate_random": rotate_random,
+        "align_to_normal": align_to_normal,
+        "parent_to_surface": parent_to_surface,
+        "collection_name": collection_name,
+    })
+    return result
 
 
+@tool_envelope
 @mcp.tool()
 def array_duplicate(
     ctx: Context,
@@ -1072,24 +1040,21 @@ def array_duplicate(
     - apply: True applies modifier (and removes radial helper Empty);
              False keeps it live for tweaking
     """
-    try:
-        blender = get_blender_connection()
-        result = blender.send_command("array_duplicate", {
-            "source_object": source_object,
-            "mode": mode,
-            "count": count,
-            "offset": list(offset) if offset is not None else None,
-            "angle_deg": angle_deg,
-            "axis": axis,
-            "center": list(center) if center is not None else None,
-            "apply": apply,
-        })
-        return json.dumps(result, indent=2)
-    except Exception as e:
-        logger.error(f"Error in array_duplicate: {str(e)}")
-        return f"Error in array_duplicate: {str(e)}"
+    blender = get_blender_connection()
+    result = blender.send_command("array_duplicate", {
+        "source_object": source_object,
+        "mode": mode,
+        "count": count,
+        "offset": list(offset) if offset is not None else None,
+        "angle_deg": angle_deg,
+        "axis": axis,
+        "center": list(center) if center is not None else None,
+        "apply": apply,
+    })
+    return result
 
 
+@tool_envelope
 @mcp.tool()
 def curve_extrude_profile(
     ctx: Context,
@@ -1121,25 +1086,22 @@ def curve_extrude_profile(
     - convert_to_mesh: convert curve to mesh after creation
     - location: object origin offset
     """
-    try:
-        blender = get_blender_connection()
-        result = blender.send_command("curve_extrude_profile", {
-            "name": name,
-            "path_points": [list(p) for p in path_points],
-            "profile": profile,
-            "thickness": thickness,
-            "resolution": resolution,
-            "closed": closed,
-            "smooth": smooth,
-            "convert_to_mesh": convert_to_mesh,
-            "location": list(location),
-        })
-        return json.dumps(result, indent=2)
-    except Exception as e:
-        logger.error(f"Error in curve_extrude_profile: {str(e)}")
-        return f"Error in curve_extrude_profile: {str(e)}"
+    blender = get_blender_connection()
+    result = blender.send_command("curve_extrude_profile", {
+        "name": name,
+        "path_points": [list(p) for p in path_points],
+        "profile": profile,
+        "thickness": thickness,
+        "resolution": resolution,
+        "closed": closed,
+        "smooth": smooth,
+        "convert_to_mesh": convert_to_mesh,
+        "location": list(location),
+    })
+    return result
 
 
+@tool_envelope
 @mcp.tool()
 def quick_export(
     ctx: Context,
@@ -1170,25 +1132,22 @@ def quick_export(
     - axis_forward, axis_up: coordinate convention for FBX/OBJ
     - draco: GLB Draco mesh compression
     """
-    try:
-        blender = get_blender_connection()
-        result = blender.send_command("quick_export", {
-            "filepath": filepath,
-            "objects": objects,
-            "format": format,
-            "pack_textures": pack_textures,
-            "apply_modifiers": apply_modifiers,
-            "selected_only": selected_only,
-            "axis_forward": axis_forward,
-            "axis_up": axis_up,
-            "draco": draco,
-        })
-        return json.dumps(result, indent=2)
-    except Exception as e:
-        logger.error(f"Error in quick_export: {str(e)}")
-        return f"Error in quick_export: {str(e)}"
+    blender = get_blender_connection()
+    result = blender.send_command("quick_export", {
+        "filepath": filepath,
+        "objects": objects,
+        "format": format,
+        "pack_textures": pack_textures,
+        "apply_modifiers": apply_modifiers,
+        "selected_only": selected_only,
+        "axis_forward": axis_forward,
+        "axis_up": axis_up,
+        "draco": draco,
+    })
+    return result
 
 
+@tool_envelope
 @mcp.tool()
 def set_world_hdri_rotation(
     ctx: Context,
@@ -1207,16 +1166,12 @@ def set_world_hdri_rotation(
 
     Requires an HDRI to be already loaded (e.g. via download_polyhaven_asset).
     """
-    try:
-        blender = get_blender_connection()
-        result = blender.send_command("set_world_hdri_rotation", {
-            "z_rotation_deg": z_rotation_deg,
-            "strength": strength,
-        })
-        return json.dumps(result, indent=2)
-    except Exception as e:
-        logger.error(f"Error in set_world_hdri_rotation: {str(e)}")
-        return f"Error in set_world_hdri_rotation: {str(e)}"
+    blender = get_blender_connection()
+    result = blender.send_command("set_world_hdri_rotation", {
+        "z_rotation_deg": z_rotation_deg,
+        "strength": strength,
+    })
+    return result
 
 
 # --------------------------------------------------------------------------
@@ -1851,6 +1806,7 @@ def download_polyhaven_asset(
         logger.error(f"Error downloading Polyhaven asset: {str(e)}")
         return f"Error downloading Polyhaven asset: {str(e)}"
 
+@tool_envelope
 @telemetry_tool("set_texture")
 @mcp.tool()
 def set_texture(
@@ -1860,56 +1816,20 @@ def set_texture(
 ) -> str:
     """
     Apply a previously downloaded Polyhaven texture to an object.
-    
+
     Parameters:
     - object_name: Name of the object to apply the texture to
     - texture_id: ID of the Polyhaven texture to apply (must be downloaded first)
-    
+
     Returns a message indicating success or failure.
     """
-    try:
-        # Get the global connection
-        blender = get_blender_connection()
-        result = blender.send_command("set_texture", {
-            "object_name": object_name,
-            "texture_id": texture_id
-        })
-        
-        if "error" in result:
-            return f"Error: {result['error']}"
-        
-        if result.get("success"):
-            material_name = result.get("material", "")
-            maps = ", ".join(result.get("maps", []))
-            
-            # Add detailed material info
-            material_info = result.get("material_info", {})
-            node_count = material_info.get("node_count", 0)
-            has_nodes = material_info.get("has_nodes", False)
-            texture_nodes = material_info.get("texture_nodes", [])
-            
-            output = f"Successfully applied texture '{texture_id}' to {object_name}.\n"
-            output += f"Using material '{material_name}' with maps: {maps}.\n\n"
-            output += f"Material has nodes: {has_nodes}\n"
-            output += f"Total node count: {node_count}\n\n"
-            
-            if texture_nodes:
-                output += "Texture nodes:\n"
-                for node in texture_nodes:
-                    output += f"- {node['name']} using image: {node['image']}\n"
-                    if node['connections']:
-                        output += "  Connections:\n"
-                        for conn in node['connections']:
-                            output += f"    {conn}\n"
-            else:
-                output += "No texture nodes found in the material.\n"
-            
-            return output
-        else:
-            return f"Failed to apply texture: {result.get('message', 'Unknown error')}"
-    except Exception as e:
-        logger.error(f"Error applying texture: {str(e)}")
-        return f"Error applying texture: {str(e)}"
+    # Get the global connection
+    blender = get_blender_connection()
+    result = blender.send_command("set_texture", {
+        "object_name": object_name,
+        "texture_id": texture_id
+    })
+    return result
 
 @tool_envelope
 @telemetry_tool("get_polyhaven_status")
