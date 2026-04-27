@@ -434,6 +434,11 @@ class BlenderMCPServer:
             "boolean_cutout": self.boolean_cutout,
             "frame_camera_to_objects": self.frame_camera_to_objects,
             "setup_lighting": self.setup_lighting,
+            "apply_archviz_material": self.apply_archviz_material,
+            "list_archviz_genres": self.list_archviz_genres,
+            "get_ambientcg_status": self.get_ambientcg_status,
+            "search_ambientcg_assets": self.search_ambientcg_assets,
+            "download_ambientcg_asset": self.download_ambientcg_asset,
         }
 
         # Add Polyhaven handlers only if enabled
@@ -1639,6 +1644,410 @@ class BlenderMCPServer:
             "world_strength": spec["world_strength"],
             "target": [round(v, 4) for v in target],
         }
+
+    # ------------------------------------------------------------------
+    # Archviz material genres — generic, library-agnostic
+    # ------------------------------------------------------------------
+
+    ARCHVIZ_GENRES = {
+        # Each genre maps to: PolyHaven candidate IDs (priority order),
+        # PolyHaven search filters (category + keywords) used as fallback,
+        # default UV scale, description.
+        "hardwood_floor": {
+            "polyhaven_ids": ["dark_wooden_planks", "wood_floor_worn"],
+            "polyhaven_filter": {"asset_type": "textures", "categories": "wood,floor"},
+            "uv_scale": 2.0,
+            "description": "Hardwood floor (walnut, oak, dark)",
+        },
+        "softwood_planks": {
+            "polyhaven_ids": ["brown_planks_05", "brown_planks_03", "brown_planks_09"],
+            "polyhaven_filter": {"asset_type": "textures", "categories": "wood"},
+            "uv_scale": 3.0,
+            "description": "Pine/cedar plank wall or panel",
+        },
+        "exposed_wood": {
+            "polyhaven_ids": ["weathered_brown_planks", "green_rough_planks", "beam_wall_01"],
+            "polyhaven_filter": {"asset_type": "textures", "categories": "wood,raw wood"},
+            "uv_scale": 2.0,
+            "description": "Weathered/raw exposed wood",
+        },
+        "brick_wall": {
+            "polyhaven_ids": ["brick_wall_003", "brick_wall_001", "brick_wall_006"],
+            "polyhaven_filter": {"asset_type": "textures", "categories": "brick"},
+            "uv_scale": 3.0,
+            "description": "Brick wall (clean to weathered)",
+        },
+        "brick_floor": {
+            "polyhaven_ids": ["brick_floor", "brick_floor_003", "brick_pavement_02"],
+            "polyhaven_filter": {"asset_type": "textures", "categories": "brick,floor"},
+            "uv_scale": 4.0,
+            "description": "Brick or paved floor",
+        },
+        "concrete_smooth": {
+            "polyhaven_ids": ["concrete_wall_007", "concrete_floor_painted"],
+            "polyhaven_filter": {"asset_type": "textures", "categories": "concrete"},
+            "uv_scale": 2.0,
+            "description": "Polished smooth concrete",
+        },
+        "concrete_rough": {
+            "polyhaven_ids": ["concrete_layers_02", "rough_concrete_wall"],
+            "polyhaven_filter": {"asset_type": "textures", "categories": "concrete"},
+            "uv_scale": 2.0,
+            "description": "Rough or exposed concrete",
+        },
+        "plaster_wall": {
+            "polyhaven_ids": ["beige_wall_001", "plaster_brick_01"],
+            "polyhaven_filter": {"asset_type": "textures", "categories": "plaster-concrete,plaster"},
+            "uv_scale": 2.0,
+            "description": "Painted plaster / drywall surface",
+        },
+        "natural_stone": {
+            "polyhaven_ids": ["rock_face_03", "cliff_side"],
+            "polyhaven_filter": {"asset_type": "textures", "categories": "rock"},
+            "uv_scale": 1.5,
+            "description": "Natural stone (granite, slate, limestone)",
+        },
+        "tile_ceramic": {
+            "polyhaven_ids": ["square_floor_tiles_01", "blue_floor_tiles_01"],
+            "polyhaven_filter": {"asset_type": "textures", "categories": "tiles"},
+            "uv_scale": 4.0,
+            "description": "Ceramic / porcelain tile",
+        },
+        "metal_industrial": {
+            "polyhaven_ids": ["factory_wall", "corrugated_iron"],
+            "polyhaven_filter": {"asset_type": "textures", "categories": "metal"},
+            "uv_scale": 2.0,
+            "description": "Industrial metal panel (brushed steel, corrugated)",
+        },
+        "grass_ground": {
+            "polyhaven_ids": ["aerial_grass_rock", "brown_mud_leaves_01"],
+            "polyhaven_filter": {"asset_type": "textures", "categories": "terrain,natural"},
+            "uv_scale": 6.0,
+            "description": "Grass / outdoor terrain",
+        },
+        "roof_clay_tiles": {
+            "polyhaven_ids": ["clay_roof_tiles_03", "ceramic_roof_01", "red_slate_roof_tiles_01"],
+            "polyhaven_filter": {"asset_type": "textures", "categories": "roofing"},
+            "uv_scale": 4.0,
+            "description": "Terracotta or red clay roof tiles",
+        },
+        "roof_slate": {
+            "polyhaven_ids": ["roof_slates_03", "roof_slates_02"],
+            "polyhaven_filter": {"asset_type": "textures", "categories": "roofing"},
+            "uv_scale": 4.0,
+            "description": "Grey slate roofing",
+        },
+        # painted_wall is a special case — routes to apply_material_color
+        # (no texture download required for flat paint).
+    }
+
+    def apply_archviz_material(self, object_name, genre,
+                               color_hint=None, finish=None,
+                               resolution="2k", custom_hex=None,
+                               roughness=0.7, library="auto"):
+        """High-level: pick a textured PBR material by generic genre keyword,
+        download from PolyHaven, apply to the object via set_texture.
+
+        For flat painted surfaces, pass genre='painted_wall' along with
+        custom_hex='#RRGGBB' — this short-circuits to apply_material_color
+        (no texture download).
+
+        Parameters:
+        - object_name: target mesh
+        - genre: one of ARCHVIZ_GENRES keys, or 'painted_wall'
+        - color_hint, finish: reserved for future genre filtering (currently
+          ignored — picks first PolyHaven candidate that downloads)
+        - resolution: PolyHaven resolution preference ('1k' / '2k' / '4k')
+        - custom_hex: required when genre='painted_wall', ignored otherwise
+        - roughness: only used for painted_wall
+        - library: 'auto' (default — try polyhaven, then any registered
+          alternative) | 'polyhaven' (force PolyHaven only)
+
+        Returns the chosen asset_id and library, or an error if all
+        candidates failed.
+        """
+        # painted_wall short-circuit
+        if genre == "painted_wall":
+            if not custom_hex:
+                return {"error": "genre='painted_wall' requires custom_hex='#RRGGBB'"}
+            return self.apply_material_color(
+                object_name, custom_hex,
+                roughness=roughness, metallic=0.0,
+            )
+
+        if genre not in self.ARCHVIZ_GENRES:
+            available = sorted(self.ARCHVIZ_GENRES) + ["painted_wall"]
+            return {"error": f"Unknown genre '{genre}'. Available: {available}"}
+
+        spec = self.ARCHVIZ_GENRES[genre]
+        candidates = list(spec.get("polyhaven_ids", []))
+        last_err = None
+        for asset_id in candidates:
+            try:
+                dl = self.download_polyhaven_asset(
+                    asset_id=asset_id,
+                    asset_type="textures",
+                    resolution=resolution,
+                )
+                if isinstance(dl, dict) and dl.get("error"):
+                    last_err = dl["error"]
+                    continue
+                # Successfully downloaded — apply
+                applied = self.set_texture(object_name, asset_id)
+                if isinstance(applied, dict) and applied.get("error"):
+                    last_err = applied["error"]
+                    continue
+                return {
+                    "object_name": object_name,
+                    "genre": genre,
+                    "library": "polyhaven",
+                    "asset_id": asset_id,
+                    "resolution": resolution,
+                    "description": spec.get("description"),
+                    "uv_scale_hint": spec.get("uv_scale", 1.0),
+                }
+            except Exception as e:
+                last_err = str(e)
+                continue
+
+        return {
+            "error": f"All PolyHaven candidates failed for genre '{genre}'. "
+                     f"Tried: {candidates}. Last error: {last_err}",
+            "genre": genre,
+            "candidates_tried": candidates,
+        }
+
+    def list_archviz_genres(self):
+        """Return all available archviz genre keys with descriptions and
+        candidate asset IDs. Useful for the LLM to discover what's possible
+        without trial-and-error."""
+        return {
+            genre: {
+                "description": spec.get("description"),
+                "uv_scale": spec.get("uv_scale", 1.0),
+                "polyhaven_candidates": spec.get("polyhaven_ids", []),
+            }
+            for genre, spec in self.ARCHVIZ_GENRES.items()
+        } | {
+            "painted_wall": {
+                "description": "Solid color paint (use custom_hex param)",
+                "special": True,
+                "requires": "custom_hex='#RRGGBB'",
+            },
+        }
+
+    # ------------------------------------------------------------------
+    # ambientCG integration — CC0 PBR textures (~2000+ materials)
+    # https://docs.ambientcg.com/api/  No auth required.
+    # ------------------------------------------------------------------
+
+    def get_ambientcg_status(self):
+        """Check ambientCG connectivity (no key needed; just verify network)."""
+        try:
+            r = _resilient_get(
+                "https://ambientcg.com/api/v2/categories?limit=1",
+                max_retries=2, timeout=10,
+            )
+            data = r.json()
+            return {"enabled": True, "message": "ambientCG reachable",
+                    "categories_available": len(data.get("foundAssets", [])) > 0
+                                            or "foundAssets" in data}
+        except Exception as e:
+            return {"enabled": False, "message": f"ambientCG unreachable: {e}"}
+
+    def search_ambientcg_assets(self, query=None, asset_type="Material",
+                                category=None, limit=20):
+        """Search ambientCG asset library.
+
+        Parameters:
+        - query: free-text search term (e.g. 'brick', 'wood floor')
+        - asset_type: 'Material' (default) | 'HDRI' | '3DModel' | 'Decal' | 'PlantModel'
+        - category: optional category filter (e.g. 'Bricks', 'Wood')
+        - limit: max results (1-100)
+
+        Returns a list of {asset_id, name, category, available_resolutions}.
+        """
+        params = {
+            "type": asset_type,
+            "limit": min(int(limit), 100),
+            "include": "tagsArray,downloadFolders,representativeImage",
+        }
+        if query:
+            params["q"] = query
+        if category:
+            params["category"] = category
+        try:
+            r = _resilient_get(
+                "https://ambientcg.com/api/v2/full_json",
+                params=params, max_retries=3, timeout=20,
+            )
+            data = r.json()
+        except Exception as e:
+            return {"error": f"ambientCG search failed: {e}"}
+
+        assets = data.get("foundAssets", [])
+        out = []
+        for a in assets:
+            asset_id = a.get("assetId")
+            # Find the most common resolution buckets across downloadFolders
+            res_set = set()
+            for folder in a.get("downloadFolders", []):
+                for asset_dl in folder.get("downloadFiletypeCategories", {}).get("zip", {}).get("downloads", []):
+                    attr = asset_dl.get("attribute") or asset_dl.get("title") or ""
+                    if "1K" in attr: res_set.add("1k")
+                    if "2K" in attr: res_set.add("2k")
+                    if "4K" in attr: res_set.add("4k")
+                    if "8K" in attr: res_set.add("8k")
+            out.append({
+                "asset_id": asset_id,
+                "category": a.get("category"),
+                "tags": a.get("tagsArray", [])[:6],
+                "resolutions": sorted(res_set) or ["unknown"],
+                "preview_url": (a.get("representativeImage") or {}).get("imageURL"),
+            })
+        return {
+            "query": query, "asset_type": asset_type, "category": category,
+            "count": len(out),
+            "assets": out,
+        }
+
+    def download_ambientcg_asset(self, asset_id, resolution="2k", file_format="jpg"):
+        """Download an ambientCG material zip, extract maps into bpy.data.images,
+        and create a Blender material wired up like a Polyhaven texture import.
+
+        Parameters:
+        - asset_id: e.g. 'Bricks001', 'WoodFloor035'
+        - resolution: '1k' | '2k' | '4k' | '8k'
+        - file_format: 'jpg' (default, smaller) | 'png'
+
+        Returns the created material name + downloaded map list.
+        """
+        # Look up download URL
+        try:
+            params = {
+                "type": "Material",
+                "id": asset_id,
+                "include": "downloadFolders",
+            }
+            r = _resilient_get(
+                "https://ambientcg.com/api/v2/full_json",
+                params=params, max_retries=3, timeout=15,
+            )
+            data = r.json()
+            assets = data.get("foundAssets", [])
+            if not assets:
+                return {"error": f"ambientCG asset '{asset_id}' not found"}
+            target_asset = assets[0]
+
+            # Find the matching zip download URL
+            zip_url = None
+            res_token = resolution.upper().replace("K", "K-")  # "2K-JPG"
+            res_match = res_token + file_format.upper()
+            for folder in target_asset.get("downloadFolders", []):
+                for cat in folder.get("downloadFiletypeCategories", {}).values():
+                    for dl in cat.get("downloads", []):
+                        attr = (dl.get("attribute") or "").upper()
+                        if (resolution.upper() in attr
+                            and file_format.upper() in attr):
+                            zip_url = dl.get("downloadLink") or dl.get("rawLink")
+                            if zip_url:
+                                break
+                    if zip_url: break
+                if zip_url: break
+            if not zip_url:
+                return {"error": f"No {resolution} {file_format} bundle for '{asset_id}'"}
+            if not zip_url.startswith("http"):
+                zip_url = "https://ambientcg.com" + zip_url
+
+            # Download the zip
+            tmp_dir = tempfile.mkdtemp(prefix="ambientcg_")
+            zip_path = os.path.join(tmp_dir, f"{asset_id}.zip")
+            try:
+                _resilient_download_to_file(zip_url, zip_path, max_retries=3)
+            except Exception as e:
+                with suppress(Exception):
+                    shutil.rmtree(tmp_dir)
+                return {"error": f"ambientCG download failed: {e}"}
+
+            # Extract
+            import zipfile
+            with zipfile.ZipFile(zip_path, "r") as zf:
+                zf.extractall(tmp_dir)
+
+            # Load images into bpy.data.images
+            loaded_maps = {}
+            for fn in os.listdir(tmp_dir):
+                low = fn.lower()
+                if not (low.endswith(".jpg") or low.endswith(".png") or low.endswith(".jpeg")):
+                    continue
+                # Detect map type from filename
+                kind = None
+                if "color" in low: kind = "color"
+                elif "normaldx" in low or "_dx" in low: kind = "nor_dx"
+                elif "normalgl" in low or "_gl" in low: kind = "nor_gl"
+                elif "roughness" in low or "rough" in low: kind = "rough"
+                elif "displacement" in low or "disp" in low: kind = "displacement"
+                elif "ao" in low or "occlusion" in low: kind = "ao"
+                elif "metalness" in low or "metallic" in low: kind = "metallic"
+                if not kind: continue
+                full = os.path.join(tmp_dir, fn)
+                img = bpy.data.images.load(full)
+                img.name = f"{asset_id}_{kind}"
+                img.pack()
+                if kind != "color":
+                    with suppress(Exception):
+                        img.colorspace_settings.name = "Non-Color"
+                loaded_maps[kind] = img
+
+            # Build a material similar to PolyHaven set_texture
+            mat = bpy.data.materials.new(f"ambientcg_{asset_id}")
+            mat.use_nodes = True
+            nt = mat.node_tree
+            nt.nodes.clear()
+            out_n = nt.nodes.new("ShaderNodeOutputMaterial"); out_n.location = (700, 0)
+            bsdf = nt.nodes.new("ShaderNodeBsdfPrincipled"); bsdf.location = (400, 0)
+            tex_coord = nt.nodes.new("ShaderNodeTexCoord"); tex_coord.location = (-700, 0)
+            mapping = nt.nodes.new("ShaderNodeMapping"); mapping.location = (-500, 0)
+            nt.links.new(tex_coord.outputs["UV"], mapping.inputs["Vector"])
+
+            if "color" in loaded_maps:
+                n = nt.nodes.new("ShaderNodeTexImage"); n.location = (-200, 200)
+                n.image = loaded_maps["color"]
+                nt.links.new(mapping.outputs["Vector"], n.inputs["Vector"])
+                nt.links.new(n.outputs["Color"], bsdf.inputs["Base Color"])
+            if "rough" in loaded_maps:
+                n = nt.nodes.new("ShaderNodeTexImage"); n.location = (-200, 0)
+                n.image = loaded_maps["rough"]
+                nt.links.new(mapping.outputs["Vector"], n.inputs["Vector"])
+                nt.links.new(n.outputs["Color"], bsdf.inputs["Roughness"])
+            if "metallic" in loaded_maps:
+                n = nt.nodes.new("ShaderNodeTexImage"); n.location = (-200, -150)
+                n.image = loaded_maps["metallic"]
+                nt.links.new(mapping.outputs["Vector"], n.inputs["Vector"])
+                nt.links.new(n.outputs["Color"], bsdf.inputs["Metallic"])
+            if "nor_gl" in loaded_maps or "nor_dx" in loaded_maps:
+                norm_img = loaded_maps.get("nor_gl") or loaded_maps["nor_dx"]
+                n_tex = nt.nodes.new("ShaderNodeTexImage"); n_tex.location = (-200, -350)
+                n_tex.image = norm_img
+                norm_node = nt.nodes.new("ShaderNodeNormalMap"); norm_node.location = (100, -350)
+                nt.links.new(mapping.outputs["Vector"], n_tex.inputs["Vector"])
+                nt.links.new(n_tex.outputs["Color"], norm_node.inputs["Color"])
+                nt.links.new(norm_node.outputs["Normal"], bsdf.inputs["Normal"])
+            nt.links.new(bsdf.outputs["BSDF"], out_n.inputs["Surface"])
+
+            with suppress(Exception):
+                shutil.rmtree(tmp_dir)
+
+            return {
+                "asset_id": asset_id,
+                "resolution": resolution,
+                "file_format": file_format,
+                "material_name": mat.name,
+                "maps_loaded": sorted(loaded_maps.keys()),
+                "library": "ambientcg",
+            }
+        except Exception as e:
+            return {"error": f"ambientCG download error: {e}"}
 
     @staticmethod
     def _kelvin_to_rgb(kelvin):

@@ -820,6 +820,163 @@ def setup_lighting(
         return f"Error setting up lighting: {str(e)}"
 
 
+@mcp.tool()
+def apply_archviz_material(
+    ctx: Context,
+    object_name: str,
+    genre: str,
+    color_hint: str = None,
+    finish: str = None,
+    resolution: str = "2k",
+    custom_hex: str = None,
+    roughness: float = 0.7,
+    library: str = "auto",
+) -> str:
+    """
+    Apply a textured PBR material chosen by generic genre keyword.
+
+    Routes through PolyHaven by default, picking from a curated list of
+    candidate asset IDs per genre. For flat painted surfaces, pass
+    genre='painted_wall' along with custom_hex='#RRGGBB' to short-circuit
+    to apply_material_color (no texture download needed).
+
+    Available genres (call list_archviz_genres for the up-to-date list):
+    - painted_wall (special — requires custom_hex)
+    - hardwood_floor, softwood_planks, exposed_wood
+    - brick_wall, brick_floor
+    - concrete_smooth, concrete_rough, plaster_wall
+    - natural_stone, tile_ceramic
+    - metal_industrial
+    - grass_ground, roof_clay_tiles, roof_slate
+
+    Parameters:
+    - object_name: Mesh to apply the material to
+    - genre: One of the genre keys above
+    - color_hint, finish: Reserved for future filtering (currently ignored)
+    - resolution: '1k' / '2k' (default) / '4k' / '8k' for PolyHaven download
+    - custom_hex: Required when genre='painted_wall' ('#RRGGBB')
+    - roughness: Roughness for painted_wall (0..1)
+    - library: 'auto' (default) | 'polyhaven'
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("apply_archviz_material", {
+            "object_name": object_name,
+            "genre": genre,
+            "color_hint": color_hint,
+            "finish": finish,
+            "resolution": resolution,
+            "custom_hex": custom_hex,
+            "roughness": roughness,
+            "library": library,
+        })
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error applying archviz material: {str(e)}")
+        return f"Error applying archviz material: {str(e)}"
+
+
+@mcp.tool()
+def list_archviz_genres(ctx: Context) -> str:
+    """
+    Return the full list of generic genre keys for apply_archviz_material,
+    each with a description, default UV scale, and candidate PolyHaven
+    asset IDs. Use this for discovery before calling apply_archviz_material.
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("list_archviz_genres", {})
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error listing archviz genres: {str(e)}")
+        return f"Error listing archviz genres: {str(e)}"
+
+
+@mcp.tool()
+def get_ambientcg_status(ctx: Context) -> str:
+    """
+    Check if ambientCG (CC0 PBR texture library, ~2000+ materials) is
+    reachable. No API key required — public CC0 service.
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("get_ambientcg_status", {})
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error checking ambientCG status: {str(e)}")
+        return f"Error checking ambientCG status: {str(e)}"
+
+
+@mcp.tool()
+def search_ambientcg_assets(
+    ctx: Context,
+    query: str = None,
+    asset_type: str = "Material",
+    category: str = None,
+    limit: int = 20,
+) -> str:
+    """
+    Search the ambientCG asset library (CC0 PBR textures + HDRIs).
+
+    Complements PolyHaven for materials it doesn't cover well — fabrics,
+    leather, more concrete variants, plant decals.
+
+    Parameters:
+    - query: Free-text search (e.g. 'brick', 'wood floor', 'velvet')
+    - asset_type: 'Material' (default) | 'HDRI' | '3DModel' | 'Decal' | 'PlantModel'
+    - category: Optional category filter (e.g. 'Bricks', 'Wood', 'Fabric')
+    - limit: Max results (1-100)
+
+    Returns asset_ids + categories + tags + available resolutions.
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("search_ambientcg_assets", {
+            "query": query,
+            "asset_type": asset_type,
+            "category": category,
+            "limit": limit,
+        })
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error searching ambientCG: {str(e)}")
+        return f"Error searching ambientCG: {str(e)}"
+
+
+@mcp.tool()
+def download_ambientcg_asset(
+    ctx: Context,
+    asset_id: str,
+    resolution: str = "2k",
+    file_format: str = "jpg",
+) -> str:
+    """
+    Download a CC0 ambientCG material, extract maps, and create a Blender
+    material wired up like a PolyHaven texture import (Color/Roughness/
+    Normal/Metallic/Displacement/AO).
+
+    Use search_ambientcg_assets first to find the asset_id.
+
+    Parameters:
+    - asset_id: e.g. 'Bricks001', 'WoodFloor035', 'Fabric001'
+    - resolution: '1k' | '2k' (default) | '4k' | '8k'
+    - file_format: 'jpg' (default — smaller) | 'png'
+
+    Returns the created material name + which maps were loaded.
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("download_ambientcg_asset", {
+            "asset_id": asset_id,
+            "resolution": resolution,
+            "file_format": file_format,
+        })
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error downloading ambientCG asset: {str(e)}")
+        return f"Error downloading ambientCG asset: {str(e)}"
+
+
 @telemetry_tool("execute_blender_code")
 @mcp.tool()
 def execute_blender_code(ctx: Context, code: str) -> str:
