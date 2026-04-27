@@ -6,6 +6,29 @@ This is an actively maintained community fork of [ahujasid/blender-mcp](https://
 
 ---
 
+## [1.8.0+fork.1] — 2026-04-28
+
+Sprint 3: 5 more generic geometry & IO tools — scatter, array, curve, export, HDRI rotation. Total fork-original tool count is now **15**, on top of the 22 inherited from upstream.
+
+### Added — fork-original tools
+
+- **`scatter_on_surface(surface, instances, density, max_count, seed, scale_min/max, rotate_random, align_to_normal, parent_to_surface, collection_name)`** — area-weighted random placement of one or more instance objects across a surface mesh. Triangulates polygons via fan, samples barycentric points uniformly, weights face selection by world-space area. Linked-data copies keep memory low. Used for books on shelves, bottles on bars, gravel on paths, foliage on terrain, plates on tables.
+- **`array_duplicate(source, mode, count, offset, angle_deg, axis, center, apply)`** — linear or radial duplication via a real Blender Array modifier. `apply=True` bakes geometry and removes the helper Empty.
+- **`curve_extrude_profile(name, path_points, profile, thickness, resolution, closed, smooth, convert_to_mesh, location)`** — build a Bezier curve from points and apply a bevel — `round` (cylindrical, neon/pipes), `square` (railings/trim), `flat` (ribbons), or a named custom 2D curve. Optional convert-to-mesh.
+- **`quick_export(filepath, objects, format, pack_textures, apply_modifiers, selected_only, axis_forward, axis_up, draco)`** — single-call export to GLB / GLTF / FBX / OBJ / USD / USDZ. Format auto-detected from extension. GLB always packs textures by default (the #1 r/blender "client opens empty file" gotcha) and gets Draco mesh compression. Handles Blender 4.x's switch from `bpy.ops.export_scene.obj` to `wm.obj_export`.
+- **`set_world_hdri_rotation(z_rotation_deg, strength)`** — rotate the active world HDRI around Z and/or set Background strength. Auto-creates Mapping + TexCoord nodes if not present. No re-download required for time-of-day adjustments — just spin the existing HDRI.
+
+### Verified end-to-end
+
+- `scatter_on_surface(Ground, [TestPebble, TestBottle], density=0.3)` → 120 placements on 400 m², exact area match
+- `array_duplicate('TestPendant', 'linear', 5, offset=[0.6, 0, 0])` → live 5-pendant row
+- `array_duplicate('TestChair', 'radial', 8, angle_deg=360, center=[0,0,0], apply=True)` → 8-chair circle, baked, helper Empty cleaned up
+- `curve_extrude_profile('NeonArc_Test', 7 arched points, profile='round', thickness=0.04)` → bezier curve with bevel
+- `set_world_hdri_rotation(90.0, strength=0.6)` → mapping rotation Z=1.5708 rad, BG strength 0.6
+- `quick_export([HouseBody, Roof, Door, Windows, NeonArc], format='auto')` → 17.7 MB GLB, Draco compressed, 6 primitives
+
+---
+
 ## [1.7.0+fork.1] — 2026-04-28
 
 Sprint 2: download resilience, 6 new generic tools (mesh cleanup, boolean cutouts, camera framing, lighting moods, archviz materials), and a second free CC0 PBR library (ambientCG) integrated.

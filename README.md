@@ -23,9 +23,10 @@ This fork ships those fixes plus design-workflow tools targeted at interior desi
 | Blender 4.0+ / 5.x compatibility | This fork | `set_texture` failing with `ShaderNodeSeparateRGB undefined` |
 | Tool-docstring prompt-injection removal | This fork | Closes upstream issue #214 (security) |
 | 4 design-workflow tools (v1.6) | This fork | `apply_material_color`, `place_on_ground`, `render_image`, `set_camera_view` |
-| **6 generic archviz tools (v1.7)** | **This fork** | **`mesh_cleanup`, `boolean_cutout`, `frame_camera_to_objects`, `setup_lighting` (8 moods), `apply_archviz_material` (14 genres), `list_archviz_genres`** |
-| **ambientCG integration (v1.7)** | **This fork** | **CC0 PBR library (~2000 materials) — fills PolyHaven fabric/leather/carpet gaps** |
-| **Resilient downloads (v1.7)** | **This fork** | **Retry + Range-resume — Sketchfab IncompleteRead drops handled transparently** |
+| 6 generic archviz tools (v1.7) | This fork | `mesh_cleanup`, `boolean_cutout`, `frame_camera_to_objects`, `setup_lighting` (8 moods), `apply_archviz_material` (14 genres), `list_archviz_genres` |
+| ambientCG integration (v1.7) | This fork | CC0 PBR library (~2000 materials) — fills PolyHaven fabric/leather/carpet gaps |
+| Resilient downloads (v1.7) | This fork | Retry + Range-resume — Sketchfab IncompleteRead drops handled transparently |
+| **5 geometry / IO tools (v1.8)** | **This fork** | **`scatter_on_surface`, `array_duplicate` (linear+radial), `curve_extrude_profile`, `quick_export` (GLB/FBX/OBJ/USD), `set_world_hdri_rotation`** |
 | API-credential persistence | [#235](https://github.com/ahujasid/blender-mcp/pull/235) | Sketchfab/Hyper3D tokens lost on Blender restart |
 | Visual grounding verification | [#230](https://github.com/ahujasid/blender-mcp/pull/230) | "Is this furniture actually on the floor?" |
 | Distinguish addon vs transport errors | [#228](https://github.com/ahujasid/blender-mcp/pull/228) | "Communication error" misdiagnosis |
@@ -223,15 +224,19 @@ That's it — your AI client should now show a hammer 🔨 icon with `mcp__blend
 ### Geometry helpers
 | Tool | What it does |
 |---|---|
-| **`mesh_cleanup`** | 🆕 v1.7 — merge dups + recalc normals + decimate + remove loose; LiDAR/scan preprocessing in one call |
-| **`boolean_cutout`** | 🆕 v1.7 — windows / door cutouts / vent holes via primitive or mesh boolean |
+| **`scatter_on_surface`** | 🆕 v1.8 — area-weighted random placement of objects on a surface (books, bottles, gravel, foliage) |
+| **`array_duplicate`** | 🆕 v1.8 — linear or radial duplication via Array modifier (pendant rows, radial seating) |
+| **`curve_extrude_profile`** | 🆕 v1.8 — Bezier curve + bevel for neon, pipes, railings, decorative trim |
+| `mesh_cleanup` | v1.7 — merge dups + recalc normals + decimate + remove loose; LiDAR/scan preprocessing |
+| `boolean_cutout` | v1.7 — windows / door cutouts / vent holes via primitive or mesh boolean |
 | `place_on_ground` | Translate an object so its bbox bottom sits on a target z; walks hierarchy |
 
 ### Camera, lighting & render
 | Tool | What it does |
 |---|---|
-| **`frame_camera_to_objects`** | 🆕 v1.7 — fit camera to objects with composition presets (thirds, center) and DOF; uses lens shift to keep verticals straight |
-| **`setup_lighting`** | 🆕 v1.7 — three-layer rig tuned to 8 generic moods (`warm_intimate`, `daylight_neutral`, `bright_workspace`, `dramatic_accent`, `golden_hour`, `cool_modern`, `studio_neutral`, `moody_lowkey`) |
+| **`set_world_hdri_rotation`** | 🆕 v1.8 — rotate the world HDRI around Z + adjust strength (no re-download for time-of-day shifts) |
+| `frame_camera_to_objects` | v1.7 — fit camera to objects with composition presets (thirds, center) and DOF; uses lens shift to keep verticals straight |
+| `setup_lighting` | v1.7 — three-layer rig tuned to 8 generic moods (`warm_intimate`, `daylight_neutral`, `bright_workspace`, `dramatic_accent`, `golden_hour`, `cool_modern`, `studio_neutral`, `moody_lowkey`) |
 | `set_camera_view` | Position the active camera using preset angles (front/back/left/right/top/3q/iso) |
 | `render_image` | One-call Cycles/EEVEE render with Filmic tone-mapping |
 
@@ -255,9 +260,10 @@ That's it — your AI client should now show a hammer 🔨 icon with `mcp__blend
 | `generate_hyper3d_model_via_images` | Generate a 3D model from reference images (Hyper3D Rodin) |
 | `generate_hunyuan3d_model` | Generate a 3D model via Tencent Hunyuan3D |
 
-### Escape hatch
+### Export & escape hatch
 | Tool | What it does |
 |---|---|
+| **`quick_export`** | 🆕 v1.8 — single-call GLB / FBX / OBJ / USD / USDZ export with packed textures & Draco compression |
 | `execute_blender_code` | Run arbitrary Python with `bpy` access (powerful — see [security](#-security)) |
 | `get_*_status` | Status checks for each integration (PolyHaven / Sketchfab / Hyper3D / Hunyuan3D / ambientCG) |
 

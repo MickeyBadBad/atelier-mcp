@@ -1,6 +1,6 @@
 [project]
 name = "blender-mcp"
-version = "1.7.0+fork.1"
+version = "1.8.0+fork.1"
 description = "Drive Blender 4.x/5.x with Claude AI, Cursor, and other MCP clients — actively maintained fork with PBR textures, Sketchfab/PolyHaven/Hyper3D integration, and design-workflow tools"
 readme = "README.md"
 requires-python = ">=3.10"
