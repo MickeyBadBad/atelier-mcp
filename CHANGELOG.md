@@ -6,9 +6,9 @@ This is an actively maintained community fork of [ahujasid/blender-mcp](https://
 
 ---
 
-## [2.0.0+fork.1] — 2026-04-29
+## [2.0.0+fork.1] — 2026-04-28
 
-**Breaking changes** — every `@mcp.tool()` now returns a canonical JSON envelope. Tool renames hard-applied without aliases. Migration cheat sheet in CLAUDE.md.
+**Breaking changes** — every `@mcp.tool()` now returns a canonical JSON envelope. Tool renames hard-applied without aliases. See **Breaking** below for the rename map; agent-side migration guide in [`AGENTS.md`](./AGENTS.md).
 
 ### Breaking
 - All tools return `{"ok": bool, "data"?: ..., "error"?: {"code": str, "hint": str, "detail": str}}`. Legacy `Error: ...` strings and naked dicts are gone. LLM clients should branch on `ok` and `error.code`.
@@ -38,11 +38,11 @@ This is an actively maintained community fork of [ahujasid/blender-mcp](https://
 ### Documentation
 - `execute_blender_code` docstring rewritten to point to purpose-built tools first.
 - `set_camera_view` ↔ `frame_camera_to_objects` cross-reference each other.
-- v2 migration cheat sheet added to project CLAUDE.md.
+- Agent-targeting conventions captured in `AGENTS.md` at the fork root (return shape, naming, error codes, dispatcher pattern).
 
 ### Migration
 
-Re-entering API keys is NOT required (sidecar persistence works across this update). Old tool-name calls in saved chat histories will fail — see the cheat sheet for the rename map.
+Re-entering API keys is NOT required (sidecar persistence works across this update). Old tool-name calls in saved chat histories will fail — the rename map is in the **Breaking** section above, and `AGENTS.md` documents the v2 conventions in more detail.
 
 ---
 

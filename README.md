@@ -33,7 +33,7 @@ This fork ships those fixes plus design-workflow tools targeted at interior desi
 | **Smart routing for AI 3D (v1.10)** | **This fork** | **`generate_3d_smart(prompt, quality)` — picks the best of 4 providers based on quality target + configured services + remaining budget** |
 | **OpenAI image gen (v1.10)** | **This fork** | **DALL-E 3 + gpt-image-1 for textures, mood boards, image-to-3D refs (separate API billing — not covered by ChatGPT Plus)** |
 | **Codex CLI image gen (v1.10.1) — FREE for ChatGPT subscribers** | **This fork** | **`generate_image_codex` shells out to `codex exec` with `$imagegen` skill (model gpt-image-2). Counts against ChatGPT quota, not API billing.** |
-| **Unified tool envelope (v2.0)** | **This fork** | **All ~56 `@mcp.tool()` responses now return `{ok, data?, error?}` JSON. LLM clients branch on `ok` + `error.code` instead of parsing free-form strings. BC-break — see CHANGELOG.** |
+| **Unified tool envelope (v2.0)** | **This fork** | **All 56 `@mcp.tool()` responses now return `{ok, data?, error?}` JSON. LLM clients branch on `ok` + `error.code` instead of parsing free-form strings. BC-break — see CHANGELOG.** |
 | **OpenAI-compatible base_url (v2.0)** | **This fork** | **`openai_base_url` config field — point image gen at Comfly, OpenRouter, vLLM, or any OpenAI-API-compatible relay without code edits.** |
 | **Telemetry opt-in (v2.0)** | **This fork** | **`telemetry_consent` defaults to `False`. Upstream defaulted to on; we don't.** |
 | API-credential persistence | [#235](https://github.com/ahujasid/blender-mcp/pull/235) | Sketchfab/Hyper3D tokens lost on Blender restart |
