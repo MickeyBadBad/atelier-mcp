@@ -27,6 +27,12 @@ DEFAULT_HOST = "localhost"
 DEFAULT_PORT = 9876
 
 
+def _is_valid_http_url(value: str) -> bool:
+    """Return True when value is an absolute HTTP(S) URL with a host."""
+    parsed = urlparse(value)
+    return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+
+
 class BlenderCommandError(Exception):
     """Raised when the Blender addon reports an error for a command.
 
@@ -979,7 +985,7 @@ def generate_hyper3d_model_via_images(
                     (Path(path).suffix, base64.b64encode(f.read()).decode("ascii"))
                 )
     elif input_image_urls is not None:
-        if not all(urlparse(i) for i in input_image_paths):
+        if not all(_is_valid_http_url(i) for i in input_image_urls):
             return "Error: not all image URLs are valid!"
         images = input_image_urls.copy()
     try:
