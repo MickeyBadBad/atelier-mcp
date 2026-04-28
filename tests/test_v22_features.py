@@ -278,3 +278,54 @@ def test_frame_camera_camera_xyz_overrides_orbit(monkeypatch):
         focal_mm=35,
     )
     assert out["location"] == [9.5, -8.5, 2.6]
+
+
+def test_delete_objects_by_name_and_pattern(monkeypatch):
+    """delete_objects can take names=[...] for explicit names and
+    patterns=[...] for fnmatch globs. Returns count + sample of names
+    removed."""
+    import sys, os
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    if "addon" in sys.modules:
+        del sys.modules["addon"]
+    import addon
+
+    fake_objs = {
+        "HouseBody": type("Obj", (), {"name": "HouseBody"})(),
+        "Roof": type("Obj", (), {"name": "Roof"})(),
+        "TestBottle_1": type("Obj", (), {"name": "TestBottle_1"})(),
+        "TestBottle_2": type("Obj", (), {"name": "TestBottle_2"})(),
+        "Cone.001": type("Obj", (), {"name": "Cone.001"})(),
+        "Cone.002": type("Obj", (), {"name": "Cone.002"})(),
+    }
+    removed_names = []
+
+    def fake_remove(obj, do_unlink=True):
+        removed_names.append(obj.name)
+        fake_objs.pop(obj.name, None)
+
+    class _FakeObjectsCollection:
+        """Mimics bpy.data.objects: iterable + .get(name) + .remove(obj)."""
+        def __iter__(self):
+            return iter(list(fake_objs.values()))
+        def get(self, n):
+            return fake_objs.get(n)
+        def remove(self, obj, do_unlink=True):
+            fake_remove(obj, do_unlink=do_unlink)
+
+    addon.bpy.data.objects = _FakeObjectsCollection()
+
+    server = addon.BlenderMCPServer.__new__(addon.BlenderMCPServer)
+    out = server.delete_objects(
+        names=["HouseBody"],  # explicit -- should NOT match (it's in keep)
+        patterns=["TestBottle_*", "Cone.*"],
+        keep=["HouseBody", "Roof"],
+    )
+    # Keep wins: HouseBody NOT removed even though listed in `names`
+    assert "HouseBody" not in removed_names
+    assert "Roof" not in removed_names
+    # Patterns match: 2 TestBottle + 2 Cone
+    assert sorted(removed_names) == ["Cone.001", "Cone.002",
+                                     "TestBottle_1", "TestBottle_2"]
+    assert out["removed_count"] == 4
+    assert sorted(out["removed_sample"][:4]) == sorted(removed_names)

@@ -495,6 +495,55 @@ def apply_material_color(
 
 @mcp.tool()
 @tool_envelope
+def delete_objects(
+    ctx: Context,
+    names: List[str] = None,
+    patterns: List[str] = None,
+    keep: List[str] = None,
+    purge_orphans: bool = True,
+) -> str:
+    """
+    Bulk-remove scene objects by name list and/or fnmatch glob
+    patterns, with an allowlist that's never touched.
+
+    Common pattern -- clean up after import / scatter test:
+
+        delete_objects(
+            patterns=["Test*", "Cone.*", "Cube.*", "Cylinder.*"],
+            keep=["HouseBody", "Roof", "Camera", "Ground"],
+        )
+
+    Avoids 20+ lines of execute_blender_code: walking bpy.data.objects,
+    matching, removing, then purging orphans. The `keep` allowlist wins
+    over both `names` and `patterns` -- listing a name in both `names`
+    and `keep` will preserve it, not remove it.
+
+    Parameters:
+    - names: explicit exact-match names to remove.
+    - patterns: fnmatch globs ("Test*"). Matched against object names.
+    - keep: names that must NOT be removed (overrides names + patterns).
+    - purge_orphans: when True (default), runs orphans_purge after
+      removal to free unused meshes/materials/images.
+
+    Returns: count + sample of removed names + protected count.
+    """
+    if not names and not patterns:
+        raise ToolError(
+            ErrorCode.BAD_INPUT,
+            hint="Provide at least one of `names` or `patterns`",
+        )
+    blender = get_blender_connection()
+    result = _check_addon_result(blender.send_command("delete_objects", {
+        "names": names or [],
+        "patterns": patterns or [],
+        "keep": keep or [],
+        "purge_orphans": purge_orphans,
+    }))
+    return result
+
+
+@mcp.tool()
+@tool_envelope
 def place_on_ground(
     ctx: Context,
     object_name: str,

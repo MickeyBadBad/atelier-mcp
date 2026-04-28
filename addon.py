@@ -497,6 +497,7 @@ class BlenderMCPServer:
             "get_hunyuan3d_status": self.get_hunyuan3d_status,
             # Design-workflow helpers (added by fork)
             "apply_material_color": self.apply_material_color,
+            "delete_objects": self.delete_objects,
             "place_on_ground": self.place_on_ground,
             "render_image": self.render_image,
             "set_camera_view": self.set_camera_view,
@@ -1151,6 +1152,63 @@ class BlenderMCPServer:
             "delta": [round(delta_x, 4), round(delta_y, 4), round(delta_z, 4)],
             "new_bbox_min": [round(new_min.x, 4), round(new_min.y, 4), round(new_min.z, 4)],
             "new_bbox_max": [round(new_max.x, 4), round(new_max.y, 4), round(new_max.z, 4)],
+        }
+
+    def delete_objects(self, names=None, patterns=None, keep=None,
+                       purge_orphans=True):
+        """Bulk-remove scene objects by explicit names and/or fnmatch
+        glob patterns. The `keep` allowlist always wins -- objects in
+        `keep` are never removed even if matched by `names` or
+        `patterns`.
+
+        Parameters:
+        - names: list of exact object names to remove.
+        - patterns: list of fnmatch globs ("Test*", "Cone.*") matched
+          against object names.
+        - keep: list of names that must NOT be removed (allowlist).
+        - purge_orphans: when True (default), runs orphans_purge after
+          removal to drop unreferenced meshes / materials / images.
+
+        Returns: {"removed_count": int, "removed_sample": [first 20
+        names], "kept_protected": int}.
+        """
+        import fnmatch as _fnm
+        names_set = set(names or [])
+        patterns_list = list(patterns or [])
+        keep_set = set(keep or [])
+
+        to_remove = []
+        for obj in list(bpy.data.objects):
+            if obj.name in keep_set:
+                continue
+            if obj.name in names_set:
+                to_remove.append(obj)
+                continue
+            for pat in patterns_list:
+                if _fnm.fnmatch(obj.name, pat):
+                    to_remove.append(obj)
+                    break
+
+        removed_names = []
+        for obj in to_remove:
+            try:
+                obj_name = obj.name
+                bpy.data.objects.remove(obj, do_unlink=True)
+                removed_names.append(obj_name)
+            except Exception:
+                pass
+
+        if purge_orphans and removed_names:
+            try:
+                bpy.ops.outliner.orphans_purge(
+                    do_local_ids=True, do_linked_ids=True, do_recursive=True)
+            except Exception:
+                pass
+
+        return {
+            "removed_count": len(removed_names),
+            "removed_sample": removed_names[:20],
+            "kept_protected": len(keep_set),
         }
 
     def render_image(self, filepath, resolution=None, samples=64,
