@@ -273,9 +273,9 @@ def get_blender_connection():
     return _blender_connection
 
 
-@tool_envelope
-@telemetry_tool("get_scene_info")
 @mcp.tool()
+@telemetry_tool("get_scene_info")
+@tool_envelope
 def get_scene_info(ctx: Context) -> str:
     """Get detailed information about the current Blender scene.
 
@@ -289,9 +289,9 @@ def get_scene_info(ctx: Context) -> str:
     result = _check_addon_result(blender.send_command("get_scene_info"))
     return result
 
-@tool_envelope
-@telemetry_tool("get_object_info")
 @mcp.tool()
+@telemetry_tool("get_object_info")
+@tool_envelope
 def get_object_info(ctx: Context, object_name: str) -> str:
     """
     Get detailed information about a specific object in the Blender scene.
@@ -303,8 +303,8 @@ def get_object_info(ctx: Context, object_name: str) -> str:
     result = _check_addon_result(blender.send_command("get_object_info", {"name": object_name}))
     return result
 
-@telemetry_tool("get_viewport_screenshot")
 @mcp.tool()
+@telemetry_tool("get_viewport_screenshot")
 def get_viewport_screenshot(
     ctx: Context,
     max_size: int = 800,
@@ -378,9 +378,9 @@ def get_viewport_screenshot(
         raise Exception(f"Screenshot failed: {str(e)}")
 
 
-@tool_envelope
-@telemetry_tool("verify_object_grounded")
 @mcp.tool()
+@telemetry_tool("verify_object_grounded")
+@tool_envelope
 def verify_object_grounded(
     ctx: Context,
     object_name: str,
@@ -425,8 +425,8 @@ def verify_object_grounded(
 # would otherwise require execute_blender_code boilerplate.
 # --------------------------------------------------------------------------
 
-@tool_envelope
 @mcp.tool()
+@tool_envelope
 def apply_material_color(
     ctx: Context,
     object_name: str,
@@ -463,8 +463,8 @@ def apply_material_color(
     return result
 
 
-@tool_envelope
 @mcp.tool()
+@tool_envelope
 def place_on_ground(
     ctx: Context,
     object_name: str,
@@ -495,8 +495,8 @@ def place_on_ground(
     return result
 
 
-@tool_envelope
 @mcp.tool()
+@tool_envelope
 def render_image(
     ctx: Context,
     filepath: str,
@@ -536,8 +536,8 @@ def render_image(
     return result
 
 
-@tool_envelope
 @mcp.tool()
+@tool_envelope
 def set_camera_view(
     ctx: Context,
     target_object: str = None,
@@ -585,8 +585,8 @@ def set_camera_view(
 # Sprint 2 helpers — generic geometry/lighting/composition wrappers
 # --------------------------------------------------------------------------
 
-@tool_envelope
 @mcp.tool()
+@tool_envelope
 def mesh_cleanup(
     ctx: Context,
     object_name: str,
@@ -630,8 +630,8 @@ def mesh_cleanup(
     return result
 
 
-@tool_envelope
 @mcp.tool()
+@tool_envelope
 def boolean_cutout(
     ctx: Context,
     target_object: str,
@@ -683,8 +683,8 @@ def boolean_cutout(
     return result
 
 
-@tool_envelope
 @mcp.tool()
+@tool_envelope
 def frame_camera_to_objects(
     ctx: Context,
     targets: List[str],
@@ -740,8 +740,8 @@ def frame_camera_to_objects(
     return result
 
 
-@tool_envelope
 @mcp.tool()
+@tool_envelope
 def setup_lighting(
     ctx: Context,
     mood: str = "warm_intimate",
@@ -796,8 +796,8 @@ def setup_lighting(
     return result
 
 
-@tool_envelope
 @mcp.tool()
+@tool_envelope
 def apply_archviz_material(
     ctx: Context,
     object_name: str,
@@ -849,8 +849,8 @@ def apply_archviz_material(
     return result
 
 
-@tool_envelope
 @mcp.tool()
+@tool_envelope
 def list_archviz_genres(ctx: Context) -> str:
     """
     Return the full list of generic genre keys for apply_archviz_material,
@@ -862,8 +862,8 @@ def list_archviz_genres(ctx: Context) -> str:
     return result
 
 
-@tool_envelope
 @mcp.tool()
+@tool_envelope
 def get_ambientcg_status(ctx: Context) -> str:
     """Check if ambientCG (CC0 PBR texture library, ~2000+ materials) is
     reachable. No API key required — public CC0 service."""
@@ -872,8 +872,8 @@ def get_ambientcg_status(ctx: Context) -> str:
     return result
 
 
-@tool_envelope
 @mcp.tool()
+@tool_envelope
 def search_ambientcg_assets(
     ctx: Context,
     query: str = None,
@@ -905,8 +905,8 @@ def search_ambientcg_assets(
     return result
 
 
-@tool_envelope
 @mcp.tool()
+@tool_envelope
 def download_ambientcg_asset(
     ctx: Context,
     asset_id: str,
@@ -940,8 +940,8 @@ def download_ambientcg_asset(
 # Sprint 3 — scatter / array / curve / export / hdri
 # --------------------------------------------------------------------------
 
-@tool_envelope
 @mcp.tool()
+@tool_envelope
 def scatter_on_surface(
     ctx: Context,
     surface_object: str,
@@ -997,8 +997,8 @@ def scatter_on_surface(
     return result
 
 
-@tool_envelope
 @mcp.tool()
+@tool_envelope
 def array_duplicate(
     ctx: Context,
     source_object: str,
@@ -1046,8 +1046,8 @@ def array_duplicate(
     return result
 
 
-@tool_envelope
 @mcp.tool()
+@tool_envelope
 def curve_extrude_profile(
     ctx: Context,
     name: str,
@@ -1093,8 +1093,8 @@ def curve_extrude_profile(
     return result
 
 
-@tool_envelope
 @mcp.tool()
+@tool_envelope
 def quick_export(
     ctx: Context,
     filepath: str,
@@ -1139,8 +1139,8 @@ def quick_export(
     return result
 
 
-@tool_envelope
 @mcp.tool()
+@tool_envelope
 def set_world_hdri_rotation(
     ctx: Context,
     z_rotation_deg: float = 0.0,
@@ -1172,8 +1172,8 @@ def set_world_hdri_rotation(
 # the LLM gets a single round-trip per generation request.
 # --------------------------------------------------------------------------
 
-@tool_envelope
 @mcp.tool()
+@tool_envelope
 def get_tripo3d_status(ctx: Context) -> str:
     """Check if Tripo3D is configured and reachable. Tripo3D is a top-tier
     text-to-3D / image-to-3D service with full PBR output."""
@@ -1182,8 +1182,8 @@ def get_tripo3d_status(ctx: Context) -> str:
     return result
 
 
-@tool_envelope
 @mcp.tool()
+@tool_envelope
 def generate_tripo3d_text_to_3d(
     ctx: Context,
     prompt: str,
@@ -1224,8 +1224,8 @@ def generate_tripo3d_text_to_3d(
     return result
 
 
-@tool_envelope
 @mcp.tool()
+@tool_envelope
 def generate_tripo3d_image_to_3d(
     ctx: Context,
     image_url: str,
@@ -1258,8 +1258,8 @@ def generate_tripo3d_image_to_3d(
     return result
 
 
-@tool_envelope
 @mcp.tool()
+@tool_envelope
 def get_meshy_status(ctx: Context) -> str:
     """Check if Meshy.ai is configured and reachable. Meshy.ai is a top-tier
     text-to-3D / image-to-3D service with strong all-around quality."""
@@ -1268,8 +1268,8 @@ def get_meshy_status(ctx: Context) -> str:
     return result
 
 
-@tool_envelope
 @mcp.tool()
+@tool_envelope
 def generate_meshy_text_to_3d(
     ctx: Context,
     prompt: str,
@@ -1317,8 +1317,8 @@ def generate_meshy_text_to_3d(
     return result
 
 
-@tool_envelope
 @mcp.tool()
+@tool_envelope
 def generate_meshy_image_to_3d(
     ctx: Context,
     image_url: str,
@@ -1358,8 +1358,8 @@ def generate_meshy_image_to_3d(
 # v1.10.0 — usage tracking, smart routing, OpenAI image gen
 # --------------------------------------------------------------------------
 
-@tool_envelope
 @mcp.tool()
+@tool_envelope
 def get_usage_report(ctx: Context) -> str:
     """
     Show current session usage + per-service caps + live API balance where
@@ -1372,8 +1372,8 @@ def get_usage_report(ctx: Context) -> str:
     return result
 
 
-@tool_envelope
 @mcp.tool()
+@tool_envelope
 def set_usage_budget(ctx: Context, service: str, max_value: float) -> str:
     """
     Adjust the per-session cap for a metered service.
@@ -1392,8 +1392,8 @@ def set_usage_budget(ctx: Context, service: str, max_value: float) -> str:
     return result
 
 
-@tool_envelope
 @mcp.tool()
+@tool_envelope
 def reset_usage_counters(ctx: Context) -> str:
     """Reset all session usage counters back to zero. Useful at the start
     of a new design sprint. Doesn't change configured budget caps."""
@@ -1402,8 +1402,8 @@ def reset_usage_counters(ctx: Context) -> str:
     return result
 
 
-@tool_envelope
 @mcp.tool()
+@tool_envelope
 def generate_3d_smart(
     ctx: Context,
     prompt: str,
@@ -1462,8 +1462,8 @@ def generate_3d_smart(
     return result
 
 
-@tool_envelope
 @mcp.tool()
+@tool_envelope
 def get_openai_status(ctx: Context) -> str:
     """Verify OpenAI API key + connectivity for image generation
     (DALL-E 3 / gpt-image-1)."""
@@ -1472,8 +1472,8 @@ def get_openai_status(ctx: Context) -> str:
     return result
 
 
-@tool_envelope
 @mcp.tool()
+@tool_envelope
 def generate_image_openai(
     ctx: Context,
     prompt: str,
@@ -1534,8 +1534,8 @@ def generate_image_openai(
     return result
 
 
-@tool_envelope
 @mcp.tool()
+@tool_envelope
 def get_codex_status(ctx: Context) -> str:
     """Verify Codex CLI is installed and logged in via ChatGPT."""
     blender = get_blender_connection()
@@ -1543,8 +1543,8 @@ def get_codex_status(ctx: Context) -> str:
     return result
 
 
-@tool_envelope
 @mcp.tool()
+@tool_envelope
 def generate_image_codex(
     ctx: Context,
     prompt: str,
@@ -1601,8 +1601,8 @@ def generate_image_codex(
     return result
 
 
-@tool_envelope
 @mcp.tool()
+@tool_envelope
 def check_services(ctx: Context) -> str:
     """
     One-call health report for every integration: PolyHaven, Sketchfab,
@@ -1622,9 +1622,9 @@ def check_services(ctx: Context) -> str:
     return result
 
 
-@tool_envelope
-@telemetry_tool("execute_blender_code")
 @mcp.tool()
+@telemetry_tool("execute_blender_code")
+@tool_envelope
 def execute_blender_code(ctx: Context, code: str) -> str:
     """
     Run arbitrary Python in Blender — the escape hatch.
@@ -1669,9 +1669,9 @@ def execute_blender_code(ctx: Context, code: str) -> str:
         return f"Blender Python error: {msg}"
     return f"Code executed successfully: {result.get('result', '')}"
 
-@tool_envelope
-@telemetry_tool("get_polyhaven_categories")
 @mcp.tool()
+@telemetry_tool("get_polyhaven_categories")
+@tool_envelope
 def get_polyhaven_categories(ctx: Context, asset_type: str = "hdris") -> str:
     """
     Get a list of categories for a specific asset type on Polyhaven.
@@ -1689,9 +1689,9 @@ def get_polyhaven_categories(ctx: Context, asset_type: str = "hdris") -> str:
     result = _check_addon_result(blender.send_command("get_polyhaven_categories", {"asset_type": asset_type}))
     return result
 
-@tool_envelope
-@telemetry_tool("search_polyhaven_assets")
 @mcp.tool()
+@telemetry_tool("search_polyhaven_assets")
+@tool_envelope
 def search_polyhaven_assets(
     ctx: Context,
     asset_type: str = "all",
@@ -1713,9 +1713,9 @@ def search_polyhaven_assets(
     }))
     return result
 
-@tool_envelope
-@telemetry_tool("download_polyhaven_asset")
 @mcp.tool()
+@telemetry_tool("download_polyhaven_asset")
+@tool_envelope
 def download_polyhaven_asset(
     ctx: Context,
     asset_id: str,
@@ -1749,9 +1749,9 @@ def download_polyhaven_asset(
     }))
     return result
 
-@tool_envelope
-@telemetry_tool("set_texture")
 @mcp.tool()
+@telemetry_tool("set_texture")
+@tool_envelope
 def set_texture(
     ctx: Context,
     object_name: str,
@@ -1774,9 +1774,9 @@ def set_texture(
     }))
     return result
 
-@tool_envelope
-@telemetry_tool("get_polyhaven_status")
 @mcp.tool()
+@telemetry_tool("get_polyhaven_status")
+@tool_envelope
 def get_polyhaven_status(ctx: Context) -> str:
     """Check if PolyHaven integration is enabled. PolyHaven hosts CC0 PBR
     textures, HDRIs, and 3D models — no API key required."""
@@ -1784,27 +1784,27 @@ def get_polyhaven_status(ctx: Context) -> str:
     result = _check_addon_result(blender.send_command("get_polyhaven_status"))
     return result
 
-@tool_envelope
-@telemetry_tool("get_hyper3d_status")
 @mcp.tool()
+@telemetry_tool("get_hyper3d_status")
+@tool_envelope
 def get_hyper3d_status(ctx: Context) -> str:
     """Check if Hyper3D Rodin integration is enabled in Blender."""
     blender = get_blender_connection()
     result = _check_addon_result(blender.send_command("get_hyper3d_status"))
     return result
 
-@tool_envelope
-@telemetry_tool("get_sketchfab_status")
 @mcp.tool()
+@telemetry_tool("get_sketchfab_status")
+@tool_envelope
 def get_sketchfab_status(ctx: Context) -> str:
     """Check if Sketchfab integration is enabled in Blender."""
     blender = get_blender_connection()
     result = _check_addon_result(blender.send_command("get_sketchfab_status"))
     return result
 
-@tool_envelope
-@telemetry_tool("search_sketchfab_models")
 @mcp.tool()
+@telemetry_tool("search_sketchfab_models")
+@tool_envelope
 def search_sketchfab_models(
     ctx: Context,
     query: str,
@@ -1833,8 +1833,8 @@ def search_sketchfab_models(
     }))
     return result
 
-@telemetry_tool("download_sketchfab_model")
 @mcp.tool()
+@telemetry_tool("download_sketchfab_model")
 def get_sketchfab_model_preview(
     ctx: Context,
     uid: str
@@ -1876,8 +1876,8 @@ def get_sketchfab_model_preview(
         raise Exception(f"Failed to get preview: {str(e)}")
 
 
-@tool_envelope
 @mcp.tool()
+@tool_envelope
 def download_sketchfab_model(
     ctx: Context,
     uid: str,
@@ -1919,9 +1919,9 @@ def _process_bbox(original_bbox: list[float] | list[int] | None) -> list[int] | 
         raise ValueError("Incorrect number range: bbox must be bigger than zero!")
     return [int(float(i) / max(original_bbox) * 100) for i in original_bbox] if original_bbox else None
 
-@tool_envelope
-@telemetry_tool("generate_hyper3d_text_to_3d")
 @mcp.tool()
+@telemetry_tool("generate_hyper3d_text_to_3d")
+@tool_envelope
 def generate_hyper3d_text_to_3d(
     ctx: Context,
     text_prompt: str,
@@ -1952,9 +1952,9 @@ def generate_hyper3d_text_to_3d(
         }
     return result
 
-@tool_envelope
-@telemetry_tool("generate_hyper3d_image_to_3d")
 @mcp.tool()
+@telemetry_tool("generate_hyper3d_image_to_3d")
+@tool_envelope
 def generate_hyper3d_image_to_3d(
     ctx: Context,
     input_image_paths: list[str]=None,
@@ -2021,9 +2021,9 @@ def generate_hyper3d_image_to_3d(
         }
     return result
 
-@tool_envelope
-@telemetry_tool("poll_hyper3d_job_status")
 @mcp.tool()
+@telemetry_tool("poll_hyper3d_job_status")
+@tool_envelope
 def poll_hyper3d_job_status(
     ctx: Context,
     subscription_key: str=None,
@@ -2062,9 +2062,9 @@ def poll_hyper3d_job_status(
     result = _check_addon_result(blender.send_command("poll_hyper3d_job_status", kwargs))
     return result
 
-@tool_envelope
-@telemetry_tool("import_hyper3d_asset")
 @mcp.tool()
+@telemetry_tool("import_hyper3d_asset")
+@tool_envelope
 def import_hyper3d_asset(
     ctx: Context,
     name: str,
@@ -2093,16 +2093,16 @@ def import_hyper3d_asset(
     result = _check_addon_result(blender.send_command("import_hyper3d_asset", kwargs))
     return result
 
-@tool_envelope
 @mcp.tool()
+@tool_envelope
 def get_hunyuan3d_status(ctx: Context) -> str:
     """Check if Hunyuan3D integration is enabled in Blender."""
     blender = get_blender_connection()
     result = _check_addon_result(blender.send_command("get_hunyuan3d_status"))
     return result
     
-@tool_envelope
 @mcp.tool()
+@tool_envelope
 def generate_hunyuan3d_model(
     ctx: Context,
     text_prompt: str = None,
@@ -2133,8 +2133,8 @@ def generate_hunyuan3d_model(
         return {"job_id": formatted_job_id}
     return result
 
-@tool_envelope
 @mcp.tool()
+@tool_envelope
 def poll_hunyuan_job_status(
     ctx: Context,
     job_id: str=None,
@@ -2159,8 +2159,8 @@ def poll_hunyuan_job_status(
     result = _check_addon_result(blender.send_command("poll_hunyuan_job_status", kwargs))
     return result
 
-@tool_envelope
 @mcp.tool()
+@tool_envelope
 def import_hunyuan3d_asset(
     ctx: Context,
     name: str,
