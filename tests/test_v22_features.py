@@ -329,3 +329,43 @@ def test_delete_objects_by_name_and_pattern(monkeypatch):
                                      "TestBottle_1", "TestBottle_2"]
     assert out["removed_count"] == 4
     assert sorted(out["removed_sample"][:4]) == sorted(removed_names)
+
+
+def test_apply_glass_material_routes_to_addon(monkeypatch):
+    """apply_glass_material on the server side forwards a complete
+    parameter dict to the addon dispatcher."""
+    import sys, os
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+    captured = {}
+    class FakeConn:
+        def send_command(self, cmd, params=None):
+            captured["cmd"] = cmd
+            captured["params"] = params
+            return {"object_name": "Window_1", "material": "Glass_Window_1"}
+
+    if "blender_mcp.server" in sys.modules:
+        del sys.modules["blender_mcp.server"]
+    if "blender_mcp" in sys.modules:
+        del sys.modules["blender_mcp"]
+
+    from blender_mcp import server as srv_mod
+    srv_mod.get_blender_connection = lambda: FakeConn()
+
+    # Unwrap decorator stack to call the underlying function with kwargs
+    fn = srv_mod.apply_glass_material
+    while hasattr(fn, "__wrapped__"):
+        fn = fn.__wrapped__
+    out = fn(ctx=None, object_name="Window_1",
+             tint_hex="#ffc77a",
+             emission_color="#ffaa55",
+             emission_strength=2.0,
+             transmission=0.95, roughness=0.05, ior=1.45)
+    assert captured["cmd"] == "apply_glass_material"
+    assert captured["params"]["object_name"] == "Window_1"
+    assert captured["params"]["tint_hex"] == "#ffc77a"
+    assert captured["params"]["emission_color"] == "#ffaa55"
+    assert captured["params"]["emission_strength"] == 2.0
+    assert captured["params"]["transmission"] == 0.95
+    assert captured["params"]["roughness"] == 0.05
+    assert captured["params"]["ior"] == 1.45

@@ -496,6 +496,7 @@ class BlenderMCPServer:
             "get_sketchfab_status": self.get_sketchfab_status,
             "get_hunyuan3d_status": self.get_hunyuan3d_status,
             # Design-workflow helpers (added by fork)
+            "apply_glass_material": self.apply_glass_material,
             "apply_material_color": self.apply_material_color,
             "delete_objects": self.delete_objects,
             "place_on_ground": self.place_on_ground,
@@ -1103,6 +1104,77 @@ class BlenderMCPServer:
             "roughness": float(roughness),
             "metallic": float(metallic),
             "emission_strength": float(emission_strength),
+        }
+
+    def apply_glass_material(self, object_name, tint_hex="#FFFFFF",
+                             emission_color=None, emission_strength=0.0,
+                             transmission=0.95, roughness=0.05, ior=1.45,
+                             material_name=None):
+        """Apply a Principled BSDF tuned for glass: high transmission,
+        low roughness, optional warm interior emission. Replaces the
+        object's current material slot(s).
+
+        Parameters:
+        - tint_hex: '#RRGGBB' base color of the glass.
+        - emission_color: '#RRGGBB' interior glow color, or None for
+          no emission.
+        - emission_strength: 0-10 typical. 1.5 reads as 'lit room
+          interior'.
+        - transmission: 0-1. 0.95+ for true glass; lower for frosted/
+          cloudy.
+        - roughness: 0-1. 0.05 for clear; 0.3+ for frosted.
+        - ior: typically 1.45 (glass) / 1.33 (water) / 1.5 (high-quality
+          glass).
+        - material_name: explicit name; default = "Glass_<object_name>".
+        """
+        obj = bpy.data.objects.get(object_name)
+        if obj is None:
+            return {"error": f"Object '{object_name}' not found"}
+        if obj.type != "MESH":
+            return {"error": f"Object '{object_name}' is not a mesh"}
+
+        rgba = self._hex_to_rgba(tint_hex)
+        em_rgba = self._hex_to_rgba(emission_color) if emission_color else None
+        mat_name = material_name or f"Glass_{object_name}"
+
+        mat = bpy.data.materials.get(mat_name) or bpy.data.materials.new(mat_name)
+        mat.use_nodes = True
+        nt = mat.node_tree
+        nt.nodes.clear()
+        out_node = nt.nodes.new('ShaderNodeOutputMaterial')
+        out_node.location = (300, 0)
+        bsdf = nt.nodes.new('ShaderNodeBsdfPrincipled')
+        bsdf.location = (0, 0)
+
+        bsdf.inputs['Base Color'].default_value = rgba
+        bsdf.inputs['Roughness'].default_value = float(roughness)
+        # Cross-version safe: Blender 4.x -> 5.x renamed sockets
+        if 'Transmission Weight' in bsdf.inputs:
+            bsdf.inputs['Transmission Weight'].default_value = float(transmission)
+        elif 'Transmission' in bsdf.inputs:
+            bsdf.inputs['Transmission'].default_value = float(transmission)
+        if 'IOR' in bsdf.inputs:
+            bsdf.inputs['IOR'].default_value = float(ior)
+        if em_rgba is not None and emission_strength > 0:
+            for em_key in ('Emission', 'Emission Color'):
+                if em_key in bsdf.inputs:
+                    bsdf.inputs[em_key].default_value = em_rgba
+                    break
+            if 'Emission Strength' in bsdf.inputs:
+                bsdf.inputs['Emission Strength'].default_value = float(emission_strength)
+
+        nt.links.new(bsdf.outputs['BSDF'], out_node.inputs['Surface'])
+
+        obj.data.materials.clear()
+        obj.data.materials.append(mat)
+        return {
+            "object_name": object_name,
+            "material": mat_name,
+            "tint_hex": tint_hex,
+            "transmission": transmission,
+            "roughness": roughness,
+            "ior": ior,
+            "emission_strength": emission_strength,
         }
 
     def place_on_ground(self, object_name, ground_z=0.0,

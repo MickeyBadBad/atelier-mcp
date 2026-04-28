@@ -495,6 +495,50 @@ def apply_material_color(
 
 @mcp.tool()
 @tool_envelope
+def apply_glass_material(
+    ctx: Context,
+    object_name: str,
+    tint_hex: str = "#FFFFFF",
+    emission_color: str = None,
+    emission_strength: float = 0.0,
+    transmission: float = 0.95,
+    roughness: float = 0.05,
+    ior: float = 1.45,
+    material_name: str = None,
+) -> str:
+    """
+    Apply a Principled BSDF tuned for glass on a mesh. Common in
+    archviz: windows, glasses, water surfaces, screens, transparent
+    plastic.
+
+    Parameters:
+    - object_name: target mesh.
+    - tint_hex: '#RRGGBB' base color (#FFFFFF = clear; #ffc77a = amber).
+    - emission_color: '#RRGGBB' interior glow color, or None.
+    - emission_strength: 0-10 typical. 1.5 reads as 'lit interior'.
+    - transmission: 0-1 (0.95+ for true glass).
+    - roughness: 0-1 (0.05 clear; 0.3+ frosted).
+    - ior: 1.45 glass / 1.33 water / 1.5 lead crystal.
+    - material_name: optional override; default 'Glass_<object_name>'.
+
+    Returns the assigned material name + the parameters applied.
+    """
+    blender = get_blender_connection()
+    result = _check_addon_result(blender.send_command("apply_glass_material", {
+        "object_name": object_name,
+        "tint_hex": tint_hex,
+        "emission_color": emission_color,
+        "emission_strength": emission_strength,
+        "transmission": transmission,
+        "roughness": roughness,
+        "ior": ior,
+        "material_name": material_name,
+    }))
+    return result
+
+
+@mcp.tool()
+@tool_envelope
 def delete_objects(
     ctx: Context,
     names: List[str] = None,
