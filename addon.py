@@ -23,7 +23,7 @@ from contextlib import redirect_stdout, suppress
 bl_info = {
     "name": "Blender MCP",
     "author": "BlenderMCP",
-    "version": (2, 0, 1),
+    "version": (2, 0, 2),
     "blender": (3, 0, 0),
     "location": "View3D > Sidebar > BlenderMCP",
     "description": "Connect Blender to Claude via MCP",
@@ -3380,7 +3380,7 @@ class BlenderMCPServer:
         """
         report = {
             "blender_version": list(bpy.app.version),
-            "addon_version": "2.0.1+fork.1",
+            "addon_version": "2.0.2+fork.1",
             "services": {},
         }
 
@@ -6281,8 +6281,14 @@ class BLENDERMCP_AddonPreferences(bpy.types.AddonPreferences):
     )
     openai_base_url: bpy.props.StringProperty(
         name="OpenAI base URL",
-        description="OpenAI-compatible API endpoint. Default: https://api.openai.com/v1. "
-                    "Use ai.comfly.chat/v1 for Comfly, openrouter.ai/api/v1 for OpenRouter, etc.",
+        description=(
+            "OpenAI-compatible API endpoint URL.\n"
+            "Examples:\n"
+            "  https://api.openai.com/v1     (default — official OpenAI, paid)\n"
+            "  https://ai.comfly.chat/v1     (Comfly relay)\n"
+            "  https://openrouter.ai/api/v1  (OpenRouter)\n"
+            "Any provider that exposes /images/generations works."
+        ),
         default="https://api.openai.com/v1",
         update=_persist_credentials,
     )
@@ -6450,21 +6456,19 @@ class BLENDERMCP_PT_Panel(bpy.types.Panel):
         if scene.blendermcp_use_openai:
             sb = ai_box.box()
             sb.prop(scene, "blendermcp_openai_base_url", text="Base URL")
+            # Hint row: examples of OpenAI-compatible endpoints. Listed
+            # only as guidance — the AI assistant can look up any other
+            # provider's base URL and the field accepts arbitrary values.
+            hint = sb.row(align=True)
+            hint.alignment = 'LEFT'
+            hint.label(text="e.g. https://ai.comfly.chat/v1  /  "
+                            "https://openrouter.ai/api/v1  /  "
+                            "https://api.openai.com/v1",
+                       icon='INFO')
             if prefs:
                 sb.prop(prefs, "openai_api_key", text="API Key")
             else:
                 sb.prop(scene, "blendermcp_openai_api_key", text="API Key")
-            # Provider preset quick-set buttons
-            op_row = sb.row(align=True)
-            op_row.label(text="Preset:")
-            for label, url in (
-                ("Official",   "https://api.openai.com/v1"),
-                ("Comfly",     "https://ai.comfly.chat/v1"),
-                ("OpenRouter", "https://openrouter.ai/api/v1"),
-            ):
-                op = op_row.operator("wm.context_set_string", text=label)
-                op.data_path = "scene.blendermcp_openai_base_url"
-                op.value = url
             sb.label(text="⚠ Separate billing from ChatGPT Plus", icon='INFO')
 
         # Hunyuan3D (Tencent)
@@ -6664,7 +6668,14 @@ def register():
     )
     bpy.types.Scene.blendermcp_openai_base_url = bpy.props.StringProperty(
         name="OpenAI base URL",
-        description="OpenAI-compatible API endpoint",
+        description=(
+            "OpenAI-compatible API endpoint URL.\n"
+            "Examples:\n"
+            "  https://api.openai.com/v1     (default — official OpenAI, paid)\n"
+            "  https://ai.comfly.chat/v1     (Comfly relay)\n"
+            "  https://openrouter.ai/api/v1  (OpenRouter)\n"
+            "Any provider that exposes /images/generations works."
+        ),
         default="https://api.openai.com/v1",
     )
 

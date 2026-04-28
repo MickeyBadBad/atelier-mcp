@@ -6,6 +6,18 @@ This is an actively maintained community fork of [ahujasid/blender-mcp](https://
 
 ---
 
+## [2.0.2+fork.1] — 2026-04-28
+
+UI cleanup. The OpenAI-compat field accepts arbitrary URLs and AI assistants can look up provider endpoints, so the preset buttons were redundant and visually noisy.
+
+### Changed
+- N-panel `OpenAI image gen` section: removed the `Preset:` row with `Official` / `Comfly` / `OpenRouter` quick-set buttons. The Base URL field is now flanked by a single inline example hint listing the three URLs as guidance, and the field's hover tooltip lists them too.
+- AddonPreferences `openai_base_url` description: expanded to a multi-line endpoint table users can read on hover.
+
+No breaking change — `openai_base_url` field name + persistence + sidecar handling all unchanged. Existing values survive the upgrade.
+
+---
+
 ## [2.0.1+fork.1] — 2026-04-28
 
 Polish-only follow-up to the v2.0 ship. No BC-break, no schema changes — pure bug fixes for two items called out in the Task 17 verification report.
