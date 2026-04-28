@@ -1784,7 +1784,8 @@ def get_polyhaven_categories(ctx: Context, asset_type: str = "hdris") -> str:
 def search_polyhaven_assets(
     ctx: Context,
     asset_type: str = "all",
-    categories: str = None
+    categories: str = None,
+    concise: bool = True,
 ) -> str:
     """
     Search for assets on Polyhaven by category filter.
@@ -1806,6 +1807,9 @@ def search_polyhaven_assets(
     Parameters:
     - asset_type: hdris | textures | models | all
     - categories: comma-separated canonical tags (NOT free text)
+    - concise: when True (default), drops evs_cap / whitebalance /
+      sponsors / files_hash / coords / date metadata. Pass False for
+      the raw API response.
 
     Returns a list of matching assets with basic information.
     """
@@ -1814,6 +1818,9 @@ def search_polyhaven_assets(
         "asset_type": asset_type,
         "categories": categories
     }))
+    if concise:
+        from ._filters import slim_polyhaven
+        result = slim_polyhaven(result)
     return result
 
 @mcp.tool()
@@ -1913,7 +1920,8 @@ def search_sketchfab_models(
     query: str,
     categories: str = None,
     count: int = 20,
-    downloadable: bool = True
+    downloadable: bool = True,
+    concise: bool = True,
 ) -> str:
     """
     Search for models on Sketchfab.
@@ -1933,17 +1941,27 @@ def search_sketchfab_models(
       'food-drink', 'nature-plants', 'places-travel'.
     - count: Maximum number of results to return (default 20)
     - downloadable: Whether to include only downloadable models (default True)
+    - concise: when True (default), drops 4-thumbnail-size variants,
+      archives metadata, user avatar URLs, tags array, etc. — keeps
+      only the fields needed to pick a model. Pass `concise=False` to
+      get the raw Sketchfab API response if you need a missing field.
 
     Returns a formatted list of matching models.
     """
     blender = get_blender_connection()
-    logger.info(f"Searching Sketchfab models with query: {query}, categories: {categories}, count: {count}, downloadable: {downloadable}")
+    logger.info(
+        f"Searching Sketchfab models with query: {query}, categories: "
+        f"{categories}, count: {count}, downloadable: {downloadable}, "
+        f"concise: {concise}")
     result = _check_addon_result(blender.send_command("search_sketchfab_models", {
         "query": query,
         "categories": categories,
         "count": count,
-        "downloadable": downloadable
+        "downloadable": downloadable,
     }))
+    if concise:
+        from ._filters import slim_sketchfab
+        result = slim_sketchfab(result)
     return result
 
 @mcp.tool()
