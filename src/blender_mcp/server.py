@@ -18,6 +18,7 @@ from .telemetry import record_startup, get_telemetry
 from .telemetry_decorator import telemetry_tool
 from ._envelope import tool_envelope, ToolError, ErrorCode, _tool_response, _check_addon_result
 from ._errors import _format_error
+from ._query_guide import asset_query_help_data
 
 # Configure logging
 logging.basicConfig(level=logging.INFO,
@@ -887,10 +888,20 @@ def search_ambientcg_assets(
     Complements PolyHaven for materials it doesn't cover well — fabrics,
     leather, more concrete variants, plant decals.
 
+    **Query tips:** single material noun beats sentences. Skip color
+    adjectives (apply tint via shader after download). 'velvet' returns
+    many; 'green velvet sofa upholstery' returns zero. Categories help
+    when free text is too broad: pair `query='brick'` with
+    `category='Bricks'` for cleaner results. For the full per-service
+    query cheat sheet, call `asset_query_help`.
+
     Parameters:
-    - query: Free-text search (e.g. 'brick', 'wood floor', 'velvet')
+    - query: Free-text search, single noun preferred (e.g. 'brick',
+             'velvet', 'corduroy', 'rusted metal')
     - asset_type: 'Material' (default) | 'HDRI' | '3DModel' | 'Decal' | 'PlantModel'
-    - category: Optional category filter (e.g. 'Bricks', 'Wood', 'Fabric')
+    - category: Bricks | Wood | Fabric | Concrete | Metal | Plaster |
+                Plastic | Stone | Tiles | Ceramic | Leather | Carpet |
+                Asphalt | Roof | Ground | Plants
     - limit: Max results (1-100)
 
     Returns asset_ids + categories + tags + available resolutions.
@@ -1199,13 +1210,21 @@ def generate_tripo3d_text_to_3d(
     creates the task, polls until done, downloads the GLB, and imports
     into the scene. Returns task_id, imported object names, and download URL.
 
+    **Prompt tips:** ONE object, not a scene. 'a chair' beats 'a chair
+    in a lounge'. Bake material + style into the prompt: 'vintage brass
+    door knocker, ornate, photorealistic'. Color-and-material specifics
+    win: 'walnut wood' beats 'brown wood'. For the full prompt cheat
+    sheet, call `asset_query_help(service='tripo3d')`.
+
     Parameters:
-    - prompt: text description (e.g. "vintage brass speakeasy door knocker")
+    - prompt: SINGLE-object English description with material + style
+              (e.g. "vintage brass speakeasy door knocker, ornate")
     - model_version: 'v3.1-20260211' (default, newest), 'v3.0-20250812',
                      'v2.5-20250123', 'P1-20260311' (low-poly tuned)
     - texture: include textures
     - pbr: use PBR shading (recommended for archviz)
-    - face_limit: max polygon count (1000 - 100000)
+    - face_limit: max polygon count (1000 - 100000). Drop to ~10000 for
+                  blockouts; raise to 50000+ for hero objects.
     - target_size: rescale imported model so largest dim = this many meters
     - max_wait_seconds: polling timeout (typical 30-90s; up to 4 min)
 
@@ -1288,15 +1307,26 @@ def generate_meshy_text_to_3d(
     textures (more credits, much better result). Imports the final GLB into
     the scene at target_size.
 
+    **Prompt tips:** Meshy responds well to texture descriptors and can
+    take longer prompts than Tripo3D. Topology hints ('quad-based',
+    'low-poly') affect output. ONE object only — scene prompts produce
+    hybrids. For cheap iteration: do 3 `refine=False` previews and
+    only refine the chosen one. For the full prompt cheat sheet, call
+    `asset_query_help(service='meshy')`.
+
     Parameters:
-    - prompt: text description (max 600 chars)
+    - prompt: SINGLE-object English description, up to 600 chars,
+              with texture + topology hints
+              (e.g. "intricate Persian rug, deep red and gold woven
+              pattern, rectangular")
     - ai_model: 'meshy-6' (default), 'meshy-5', or 'latest'.
                 Meshy-4 was retired 2026-03-20.
     - topology: 'quad' (default — clean retopology) or 'triangle'
     - target_polycount: 100-300000, default 30000
-    - enable_pbr: turn on PBR textures during refine pass
+    - enable_pbr: turn on PBR textures during refine pass (defaults
+                  off-looking flat in Cycles when False)
     - refine: True (default) does preview + refine; False is preview only
-              (cheaper, no textures)
+              (cheaper, no textures, blobby)
     - target_size: rescale so largest dim = this many meters
     - max_wait_seconds: total polling timeout for both passes
 
@@ -1670,6 +1700,36 @@ def execute_blender_code(ctx: Context, code: str) -> str:
     return f"Code executed successfully: {result.get('result', '')}"
 
 @mcp.tool()
+@tool_envelope
+def asset_query_help(ctx: Context, service: str = "all") -> str:
+    """
+    Cheat sheet for how each asset service actually wants to be queried.
+
+    Different services accept very different query formats:
+
+    - PolyHaven: NOT a search engine — only takes canonical category
+      tags (`wood`, `brick`). Free text returns nothing.
+    - ambientCG: free-text + category. Single material noun beats
+      sentences. Avoid color adjectives.
+    - Sketchfab: full-text + ML rank. Short noun phrase (2-4 words).
+      Long sentences return zero. `downloadable=True` drops ~70%.
+    - Tripo3D / Meshy / Hyper3D: prompt-style English noun phrase. ONE
+      object, not a scene. Material + style modifiers help.
+
+    Call this BEFORE any search/gen call when you're unsure how to
+    phrase the query. The output includes per-service query format
+    rules, category taxonomies, common pitfalls, and worked examples.
+
+    Parameters:
+    - service: 'polyhaven' | 'ambientcg' | 'sketchfab' | 'tripo3d' |
+               'meshy' | 'hyper3d' | 'all' (default).
+
+    Returns the cheat sheet as JSON-serializable data.
+    """
+    return asset_query_help_data(service)
+
+
+@mcp.tool()
 @telemetry_tool("get_polyhaven_categories")
 @tool_envelope
 def get_polyhaven_categories(ctx: Context, asset_type: str = "hdris") -> str:
@@ -1698,11 +1758,25 @@ def search_polyhaven_assets(
     categories: str = None
 ) -> str:
     """
-    Search for assets on Polyhaven with optional filtering.
+    Search for assets on Polyhaven by category filter.
+
+    **PolyHaven is NOT a free-text search.** `categories` is the only
+    real filter; passing free text like 'dark walnut floor' returns
+    nothing. Use canonical tags from
+    `get_polyhaven_categories(asset_type=...)`. Multiple tags
+    comma-separated AND-filter (e.g. `wood,floor`).
+
+    Common tags: textures `wood`, `brick`, `concrete`, `metal`,
+    `fabric`, `tiles`, `wall`, `floor`. HDRIs `outdoor`, `indoor`,
+    `studio`, `sunrise-sunset`, `night`. Models `furniture`,
+    `decorative`, `architectural`.
+
+    For free-text material search use `search_ambientcg_assets`. For a
+    full per-service query cheat sheet, call `asset_query_help`.
 
     Parameters:
-    - asset_type: Type of assets to search for (hdris, textures, models, all)
-    - categories: Optional comma-separated list of categories to filter by
+    - asset_type: hdris | textures | models | all
+    - categories: comma-separated canonical tags (NOT free text)
 
     Returns a list of matching assets with basic information.
     """
@@ -1813,11 +1887,21 @@ def search_sketchfab_models(
     downloadable: bool = True
 ) -> str:
     """
-    Search for models on Sketchfab with optional filtering.
+    Search for models on Sketchfab.
+
+    **Query tips:** short noun phrase, 2-4 words, English. Object-first:
+    'chesterfield sofa' beats 'a sofa made of leather'. Long sentences
+    return zero results. Skip brand names (they're copyright-cleansed).
+    `downloadable=True` is the default and drops ~70% of results — set
+    False to widen the pool when zero hits, then check the `license`
+    field manually before commercial use. For the full per-service
+    query cheat sheet, call `asset_query_help`.
 
     Parameters:
-    - query: Text to search for
-    - categories: Optional comma-separated list of categories
+    - query: Short noun phrase (2-4 words). Long sentences fail.
+    - categories: comma-separated. Examples: 'furniture-home',
+      'architecture', 'art-abstract', 'cultural-heritage-history',
+      'food-drink', 'nature-plants', 'places-travel'.
     - count: Maximum number of results to return (default 20)
     - downloadable: Whether to include only downloadable models (default True)
 
@@ -1928,13 +2012,21 @@ def generate_hyper3d_text_to_3d(
     bbox_condition: list[float]=None
 ) -> str:
     """
-    Generate 3D asset using Hyper3D by giving description of the desired asset, and import the asset into Blender.
-    The 3D asset has built-in materials.
-    The generated model has a normalized size, so re-scaling after generation can be useful.
+    Generate a 3D asset via Hyper3D Rodin from a text prompt, import
+    into Blender. Free-trial key works for blockouts/prototyping; rate-
+    limits during peak hours surface as RATE_LIMITED ErrorCode.
+
+    **Prompt tips:** SHORT prompt-style English, ONE simple object.
+    Multi-object prompts produce mesh hybrids (worse than Tripo3D in
+    this regard). Hyper3D's output is often dense — run `mesh_cleanup`
+    after import. For higher fidelity prefer Tripo3D or Meshy. For the
+    full prompt cheat sheet, call `asset_query_help(service='hyper3d')`.
 
     Parameters:
-    - text_prompt: A short description of the desired model in **English**.
-    - bbox_condition: Optional. If given, it has to be a list of floats of length 3. Controls the ratio between [Length, Width, Height] of the model.
+    - text_prompt: SHORT single-object English description
+                   (e.g. "small brass cube, simple geometry").
+                   Multi-object prompts will fail.
+    - bbox_condition: Optional [Length, Width, Height] ratio floats.
 
     Returns a message indicating success or failure.
     """

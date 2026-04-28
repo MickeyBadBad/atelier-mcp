@@ -6,6 +6,29 @@ This is an actively maintained community fork of [ahujasid/blender-mcp](https://
 
 ---
 
+## [2.1.0+fork.1] — 2026-04-28
+
+LLM clients now have a per-service "how to query me" cheat sheet. Empirically, the biggest cost driver on this fork has been LLMs sending free-text prompts to PolyHaven (which silently returns nothing) or long sentences to Sketchfab (which returns 0 results). Both wasted tokens and frustrated users. This release adds explicit guidance on the query format each service actually wants.
+
+### Added
+- `asset_query_help(service: str = "all")` — new MCP tool returning a per-service cheat sheet with `how_it_searches`, `query_format`, `categories`, `pitfalls`, `examples`, and `fallback_ladder`. Call this **before** any search/gen call when uncertain how to phrase the query.
+- `src/blender_mcp/_query_guide.py` — backing module. Six services covered: PolyHaven, ambientCG, Sketchfab, Tripo3D, Meshy, Hyper3D.
+- `tests/test_query_guide.py` — 12 tests asserting uniform structure across services + correctness of the data layer.
+
+### Changed
+- Docstrings for `search_polyhaven_assets`, `search_ambientcg_assets`, `search_sketchfab_models`, `generate_tripo3d_text_to_3d`, `generate_meshy_text_to_3d`, `generate_hyper3d_text_to_3d` upgraded with a brief "Query tips" section pointing at `asset_query_help`. The defining traits are surfaced inline:
+  - PolyHaven: NOT a free-text search — only `categories` filter.
+  - Sketchfab: short noun phrase (2-4 words); long sentences fail.
+  - ambientCG: single material noun beats sentences; skip color adjectives.
+  - Tripo3D / Meshy / Hyper3D: ONE object per prompt — scenes produce hybrid meshes.
+
+### Verified live
+- Comfly `gemini-3.1-flash-image-preview-2k` end-to-end: 2048×2048 image generated, $0.10 charged, envelope shape correct (model alias passthrough from v2.0.0 + Comfly's own gemini channel now provisioned on user's plan).
+
+61/61 tests passing.
+
+---
+
 ## [2.0.2+fork.1] — 2026-04-28
 
 UI cleanup. The OpenAI-compat field accepts arbitrary URLs and AI assistants can look up provider endpoints, so the preset buttons were redundant and visually noisy.
