@@ -1888,6 +1888,89 @@ def asset_query_help(ctx: Context, service: str = "all") -> str:
 
 @mcp.tool()
 @tool_envelope
+def read_design_handbook(
+    ctx: Context,
+    chapter: str = "",
+    query: str = "",
+) -> str:
+    """
+    Read the Interior Design Handbook — the source-of-truth for design
+    rules, standards, codes, and style guidance used by the Interior
+    Design Workflow.
+
+    The handbook lives as markdown in docs/handbook/. Every numeric
+    value inside is sourced and cited (per the Sources & Citation
+    Policy in docs/superpowers/specs/2026-04-29-interior-design-
+    workflow-design.md).
+
+    Three call modes:
+
+    1. List all chapters: `read_design_handbook()`
+    2. Read a specific chapter: `read_design_handbook(chapter="lighting")`
+    3. Search across chapters: `read_design_handbook(query="Kelvin")`
+
+    Parameters:
+    - chapter: chapter slug ("lighting", "styles/scandinavian", etc.).
+               Empty string means list mode.
+    - query: free-text query, searched case-insensitive across all
+             chapters. If both `chapter` and `query` are given,
+             `chapter` wins.
+
+    Returns the chapter content (markdown) or a list of available
+    chapters or search results, all wrapped in the canonical envelope.
+    """
+    from ._handbook import (
+        HandbookError, list_chapters, read_chapter, search_chapters,
+    )
+
+    if chapter:
+        try:
+            content = read_chapter(chapter)
+        except HandbookError as e:
+            raise ToolError(
+                code=ErrorCode.NOT_FOUND,
+                hint="Use read_design_handbook() with no args to list chapters.",
+                detail=str(e),
+            ) from e
+        return _tool_response({
+            "chapter": chapter,
+            "content": content,
+        })
+
+    if query:
+        try:
+            results = search_chapters(query)
+        except HandbookError as e:
+            raise ToolError(
+                code=ErrorCode.INTERNAL,
+                hint="Handbook may be missing or corrupted.",
+                detail=str(e),
+            ) from e
+        return _tool_response({
+            "query": query,
+            "results": results,
+        })
+
+    # No args → list mode
+    try:
+        chapters = list_chapters()
+    except HandbookError as e:
+        raise ToolError(
+            code=ErrorCode.STATE_REQUIRED,
+            hint="Run from a repo with docs/handbook/ present.",
+            detail=str(e),
+        ) from e
+    return _tool_response({
+        "available_chapters": chapters,
+        "tip": (
+            "Pass chapter='<slug>' to read one, or query='<keyword>' to "
+            "search across all chapters."
+        ),
+    })
+
+
+@mcp.tool()
+@tool_envelope
 def list_tools_by_phase(ctx: Context) -> str:
     """Return the per-phase taxonomy of fork tools.
 
