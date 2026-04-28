@@ -23,7 +23,7 @@ from contextlib import redirect_stdout, suppress
 bl_info = {
     "name": "Blender MCP",
     "author": "BlenderMCP",
-    "version": (1, 2),
+    "version": (2, 0, 0),
     "blender": (3, 0, 0),
     "location": "View3D > Sidebar > BlenderMCP",
     "description": "Connect Blender to Claude via MCP",
@@ -3380,7 +3380,7 @@ class BlenderMCPServer:
         """
         report = {
             "blender_version": list(bpy.app.version),
-            "addon_version": "1.9.0+fork.1",
+            "addon_version": "2.0.0+fork.1",
             "services": {},
         }
 
@@ -3836,7 +3836,13 @@ class BlenderMCPServer:
             body["quality"] = quality
             # Note: gpt-image-1 may also accept 'response_format'
         else:
-            return {"error": f"Unsupported model '{model}'. Use 'dall-e-3' or 'gpt-image-1'."}
+            # Provider-specific alias (e.g. Comfly's 'gpt-image-2',
+            # 'gemini-3.1-flash-image-preview-2k', OpenRouter passthrough
+            # names). Pass through verbatim — the upstream OpenAI-compatible
+            # endpoint decides what's valid. We only set fields that vanilla
+            # OpenAI requires; quality/style/response_format are omitted so
+            # we don't pollute requests with options the alias may reject.
+            pass
 
         base = self._get_openai_base_url().rstrip("/")
         try:
