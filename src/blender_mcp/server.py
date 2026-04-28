@@ -629,6 +629,8 @@ def render_image(
     use_gpu: bool = True,
     view_transform: str = "Filmic",
     look: str = "Medium High Contrast",
+    return_preview: bool = False,
+    preview_max_dim: int = 256,
 ) -> str:
     """
     Render the active camera to a PNG file with one call.
@@ -645,6 +647,11 @@ def render_image(
     - use_gpu: Try GPU device for Cycles
     - view_transform: 'Filmic' (default), 'Standard', 'AgX', etc.
     - look: 'Medium High Contrast' (default), 'None', 'High Contrast', etc.
+    - return_preview: When True, the response includes a `preview_b64` key
+      holding a base64-encoded JPEG thumbnail of the render so the LLM can
+      see it inline without a separate file Read step. Default False.
+    - preview_max_dim: Longest-side pixel cap for the preview thumbnail
+      (default 256). Only used when return_preview=True.
     """
     blender = get_blender_connection()
     result = _check_addon_result(blender.send_command("render_image", {
@@ -655,6 +662,8 @@ def render_image(
         "use_gpu": use_gpu,
         "view_transform": view_transform,
         "look": look,
+        "return_preview": return_preview,
+        "preview_max_dim": preview_max_dim,
     }))
     return result
 

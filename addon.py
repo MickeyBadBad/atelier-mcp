@@ -1283,14 +1283,47 @@ class BlenderMCPServer:
             "kept_protected": len(keep_set),
         }
 
+    @staticmethod
+    def _build_preview(image_path, max_dim=256):
+        """Read the rendered file and return a base64-encoded JPEG
+        thumbnail at most max_dim pixels on the longest side. Used by
+        render_image(return_preview=True) so the LLM can see the result
+        without a separate file read.
+
+        Falls back to None on any failure — the caller still has the
+        full filepath."""
+        import base64, io
+        try:
+            from PIL import Image
+        except ImportError:
+            # Blender ships PIL/Pillow; if it's missing we just skip.
+            return None
+        try:
+            with Image.open(image_path) as im:
+                im.thumbnail((max_dim, max_dim), Image.LANCZOS)
+                buf = io.BytesIO()
+                if im.mode in ("RGBA", "LA", "P"):
+                    im = im.convert("RGB")
+                im.save(buf, format="JPEG", quality=70)
+                return base64.b64encode(buf.getvalue()).decode("ascii")
+        except Exception:
+            return None
+
     def render_image(self, filepath, resolution=None, samples=64,
                      engine="CYCLES", use_gpu=True,
-                     view_transform="Filmic", look="Medium High Contrast"):
+                     view_transform="Filmic", look="Medium High Contrast",
+                     return_preview=False, preview_max_dim=256):
         """Render the active camera to filepath (PNG by extension).
 
         Sets engine, samples, resolution, and tone-mapping in one call instead
         of asking the LLM to wire scene properties through execute_code.
         Returns the absolute filepath of the rendered image.
+
+        When return_preview=True, the response also includes a `preview_b64`
+        key — a base64-encoded JPEG thumbnail at most preview_max_dim pixels
+        on the longest side. This lets an LLM see the render result inline
+        without a separate file Read step. Falls back silently to no preview
+        key if Pillow is unavailable or the file cannot be re-opened.
         """
         scene = bpy.context.scene
         if not scene.camera:
@@ -1329,12 +1362,17 @@ class BlenderMCPServer:
         scene.render.image_settings.file_format = "PNG"
         bpy.ops.render.render(write_still=True)
 
-        return {
+        result = {
             "filepath": bpy.path.abspath(filepath),
             "engine": scene.render.engine,
             "samples": int(samples) if engine.upper() == "CYCLES" else None,
             "resolution": [scene.render.resolution_x, scene.render.resolution_y],
         }
+        if return_preview:
+            preview = self._build_preview(filepath, max_dim=preview_max_dim)
+            if preview is not None:
+                result["preview_b64"] = preview
+        return result
 
     def set_camera_view(self, target_object=None, target_xyz=None,
                         angle="3q", distance=10.0, lens=35.0,

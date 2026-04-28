@@ -415,3 +415,37 @@ def test_hyper3d_auto_import_polls_until_done_then_imports(monkeypatch):
     assert out["succeed"] is True
     assert out["name"] == "Cube1"
     assert poll_state["i"] >= 2  # polled at least twice
+
+
+def test_render_image_returns_preview_when_requested(tmp_path, monkeypatch):
+    """render_image with return_preview=True returns a base64
+    thumbnail in the response under `preview_b64` (PNG <= 256px)."""
+    import sys, os, base64
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    if "addon" in sys.modules:
+        del sys.modules["addon"]
+    import addon
+
+    rendered_path = str(tmp_path / "out.png")
+    # Stub the actual render to write a small valid PNG (1px transparent)
+    PNG_1PX = base64.b64decode(
+        b"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYA"
+        b"AAAAYAAjCB0C8AAAAASUVORK5CYII=")
+    def fake_render(*a, **kw):
+        with open(rendered_path, "wb") as f:
+            f.write(PNG_1PX)
+    monkeypatch.setattr(addon.bpy.ops.render, "render", fake_render)
+    addon.bpy.path.abspath = lambda p: p  # mock returns passthrough
+    addon.bpy.context.scene.render.filepath = rendered_path
+    addon.bpy.context.scene.camera = object()  # truthy
+
+    server = addon.BlenderMCPServer.__new__(addon.BlenderMCPServer)
+    out = server.render_image(filepath=rendered_path, return_preview=True,
+                              preview_max_dim=128)
+    assert out["filepath"] == rendered_path
+    assert "preview_b64" in out
+    assert isinstance(out["preview_b64"], str)
+    assert len(out["preview_b64"]) > 0
+    # Should be valid base64
+    base64.b64decode(out["preview_b64"])
+
