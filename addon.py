@@ -3774,6 +3774,51 @@ class BlenderMCPServer:
         except Exception as e:
             return {"enabled": False, "message": f"OpenAI unreachable: {e}"}
 
+    @staticmethod
+    def _content_type_for_url(url):
+        """HEAD the URL to discover its real Content-Type. Returns the
+        normalized mime type (lowercased, params stripped) or None on
+        any error — caller falls back to the requested extension."""
+        try:
+            r = requests.head(url, timeout=15, allow_redirects=True)
+            return r.headers.get("Content-Type", "").split(";")[0].strip().lower()
+        except Exception:
+            return None
+
+    @staticmethod
+    def _save_image_with_extension_check(url, requested_path, max_retries=3):
+        """Download `url` → file path. If Content-Type indicates a
+        different image format from the requested extension, rewrite
+        the path to match before writing.
+
+        Why: Comfly's gemini-3.1-flash-image-preview-2k returns JPEG
+        bytes regardless of what you save_to. Writing JPEG to a .png
+        filename works at the byte level (image readers honor magic
+        bytes) but breaks downstream consumers that trust the
+        extension. By inspecting Content-Type we keep filename and
+        actual format in sync.
+
+        Returns the actual saved path.
+        """
+        ct = BlenderMCPServer._content_type_for_url(url) or ""
+        ct_to_ext = {
+            "image/png":    ".png",
+            "image/jpeg":   ".jpg",
+            "image/jpg":    ".jpg",
+            "image/webp":   ".webp",
+            "image/gif":    ".gif",
+            "image/bmp":    ".bmp",
+            "image/tiff":   ".tif",
+        }
+        target_path = requested_path
+        ext_should_be = ct_to_ext.get(ct)
+        if ext_should_be:
+            base, current_ext = os.path.splitext(requested_path)
+            if current_ext.lower() != ext_should_be:
+                target_path = base + ext_should_be
+        _resilient_download_to_file(url, target_path, max_retries=max_retries)
+        return target_path
+
     def generate_image_openai(self, prompt, model="dall-e-3",
                               size="1024x1024", quality="standard",
                               save_to=None, n=1, style=None):
@@ -3883,10 +3928,12 @@ class BlenderMCPServer:
             target = save_to if len(items) == 1 else \
                      f"{os.path.splitext(save_to)[0]}_{i+1}.png"
             if "url" in item:
-                # Stream URL → file with retry
+                # Stream URL → file with retry, rewriting extension if
+                # the upstream Content-Type doesn't match what was asked.
                 try:
-                    _resilient_download_to_file(item["url"], target, max_retries=3)
-                    saved.append(target)
+                    actual = self._save_image_with_extension_check(
+                        item["url"], target, max_retries=3)
+                    saved.append(actual)
                 except Exception as e:
                     return {"error": f"Failed to download image: {e}",
                             "image_url": item.get("url")}

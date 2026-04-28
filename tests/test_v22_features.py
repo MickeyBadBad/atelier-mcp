@@ -55,3 +55,39 @@ def test_place_on_ground_flushes_view_layer(monkeypatch):
     )
     # Sanity: the post-move bbox should be reflected in the response
     assert out["new_bbox_min"] == [2, 2, -1]
+
+
+def test_generate_image_openai_extension_matches_content_type(tmp_path, monkeypatch):
+    """When Comfly returns image/jpeg, the saved file must end in .jpg
+    (or .jpeg) — not the .png the user requested. The path is rewritten
+    based on Content-Type and the new path is reported in the response."""
+    import sys, os
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    if "addon" in sys.modules:
+        del sys.modules["addon"]
+    import addon
+
+    # Stub the downloader to write 100 bytes of JPEG-magic content
+    def fake_download(url, target_path, max_retries=3):
+        os.makedirs(os.path.dirname(target_path), exist_ok=True)
+        with open(target_path, "wb") as f:
+            f.write(b"\xff\xd8\xff\xe0" + b"\x00" * 96)  # JPEG SOI
+        return target_path
+
+    monkeypatch.setattr(addon, "_resilient_download_to_file", fake_download)
+
+    # Stub _content_type_for_url to return image/jpeg
+    monkeypatch.setattr(addon.BlenderMCPServer, "_content_type_for_url",
+                        staticmethod(lambda url: "image/jpeg"))
+
+    requested_path = str(tmp_path / "render.png")
+    rewritten = addon.BlenderMCPServer._save_image_with_extension_check(
+        url="https://example/image.bin",
+        requested_path=requested_path,
+    )
+
+    # The rewritten path must end in .jpg
+    assert rewritten.endswith(".jpg"), f"got {rewritten}"
+    assert os.path.exists(rewritten)
+    # The originally-requested .png path must NOT be created
+    assert not os.path.exists(requested_path)
