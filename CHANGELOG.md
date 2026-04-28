@@ -6,6 +6,44 @@ This is an actively maintained community fork of [ahujasid/blender-mcp](https://
 
 ---
 
+## [2.2.0+fork.1] — 2026-04-29
+
+Quality-of-life additions surfaced by the v2.1.0 live exterior-render exercise. No BC-break — every existing call shape continues to work; new behavior gated behind new opt-in parameters.
+
+### Added
+- `delete_objects(names=, patterns=, keep=, purge_orphans=)` — bulk-remove scene objects by name and/or fnmatch glob, with `keep` allowlist that always wins. Replaces the 20-line `execute_blender_code` cleanup pattern observed during v2.1 (clearing 167 leftover Test* objects).
+- `apply_glass_material(object_name, tint_hex, emission_color, emission_strength, transmission, roughness, ior, material_name)` — Principled BSDF tuned for glass + optional warm interior emission. Replaces the 50-line shader-graph rebuild pattern.
+- `list_tools_by_phase()` — per-phase taxonomy for the 60 fork tools (discovery / diagnostics / asset_search / asset_download / asset_generation / material / geometry / camera / lighting / render / export / scene_management / config). Helps LLM clients pick the right tool for a workflow stage.
+- `src/blender_mcp/_filters.py` — response-shape transformers (`slim_sketchfab`, `slim_polyhaven`, `attach_zero_result_hint`, `_is_empty_search_result`).
+- `src/blender_mcp/_phases.py` — phase taxonomy + helpers.
+- 19 new tests across `tests/test_v22_features.py`, `tests/test_filters.py`, `tests/test_phases.py`. Total suite: 81 passing.
+
+### Changed
+- `search_sketchfab_models(concise=True)` — default response is now slimmed: drops 4-thumbnail-size variants, 4-archive metadata (gltf/glb/source/usdz), user avatar URLs, full tag arrays, file hashes, viewer/embed URLs, etc. Pass `concise=False` for the raw API response. Cuts typical search payload ~70%.
+- `search_polyhaven_assets(concise=True)` — same treatment (drops `evs_cap`, `whitebalance`, `files_hash`, `sponsors`, `coords`, `date_taken`, `date_published`, `backplates`).
+- All three search tools (Sketchfab / PolyHaven / ambientCG) now attach a `hint` field + `cheatsheet_call` pointing at `asset_query_help` when the result is empty. Helps the LLM recover from "wrong query format" without a separate diagnostic call.
+- `apply_archviz_material(uv_scale=)` — optional override for the genre's default UV repeat. When None (default), genre default is used. **Side benefit**: this task also fixed a latent bug where genre `uv_scale` defaults defined in `GENRE_TABLE` were never actually written to the Mapping node — they were only returned as a `uv_scale_hint` in the response. The Blender default of 1.0 was silently in effect. Genre defaults now take effect; `roof_clay_tiles` adjusted from 4.0 to 2.0 as part of this change to match the rest of the genre table's conventions.
+- `frame_camera_to_objects(camera_xyz=)` — explicit world-coordinates positioning that bypasses the orbit/elevation math. When None (default), orbit/elevation behavior is unchanged. In explicit mode, composition / lens-shift presets are skipped.
+- `get_scene_info(full=)` — `full=True` returns every object (name + type + poly_count) instead of capping at 10. Default `full=False` preserves the original 10-object cap + name+type+location shape.
+- `get_object_info(names=)` — accepts a list of names for batch lookup. Returns `{"objects": {name: info_or_error}}`. Single-name form (`object_name=`) unchanged.
+- `generate_hyper3d_text_to_3d(auto_import=True)` default now polls + imports inline (matches Tripo3D / Meshy ergonomics — single sync call from prompt to imported object). Pass `auto_import=False` for the legacy 3-call async shape (`task_uuid` + `subscription_key` returned, caller drives `poll_hyper3d_job_status` + `import_hyper3d_asset`).
+- `render_image(return_preview=True, preview_max_dim=256)` — response includes a base64 JPEG thumbnail so the LLM can see the result without a separate file Read. Pillow added as a dev dependency for tests; Blender ships Pillow at runtime.
+
+### Fixed
+- `place_on_ground` now flushes the dependency graph (`view_layer.update()`) between writing `obj.location` and re-reading `_world_bbox`. Previously the response's `new_bbox_min/max` reflected the **pre-shift** descendant `matrix_world` cache; now it reflects the post-shift state. Surfaced during v2.1 live verification when `place_on_ground(Sketchfab_model, target_xy=[3, -4.7])` reported a bbox still centered at origin despite the delta being applied correctly.
+- `generate_image_openai` saves images to extension-correct paths. Previously a Comfly call for `gemini-3.1-flash-image-preview-2k` returned JPEG bytes which were written to the requested `.png` filename. Now the path is rewritten to `.jpg` based on the HTTP Content-Type. The actual saved path is reported in the response. Two new helpers: `_content_type_for_url` + `_save_image_with_extension_check`.
+- `apply_archviz_material` genre `uv_scale` defaults are actually applied now (latent bug, see Changed section above).
+
+### Migration
+No action required. Every new feature is gated behind opt-in parameters with backward-compatible defaults. Existing chat histories continue to work. Suggested upgrades for new sessions:
+- Use `concise=True` on searches (default — automatic).
+- Use `delete_objects(patterns=[...], keep=[...])` instead of looped `execute_blender_code` cleanups.
+- Use `apply_glass_material(...)` instead of hand-rolled Principled BSDF transmission shaders.
+- Use `frame_camera_to_objects(camera_xyz=[x,y,z])` when you know the vantage you want.
+- Use `generate_hyper3d_text_to_3d(...)` directly without follow-up polling — sync by default now.
+
+---
+
 ## [2.1.0+fork.1] — 2026-04-28
 
 LLM clients now have a per-service "how to query me" cheat sheet. Empirically, the biggest cost driver on this fork has been LLMs sending free-text prompts to PolyHaven (which silently returns nothing) or long sentences to Sketchfab (which returns 0 results). Both wasted tokens and frustrated users. This release adds explicit guidance on the query format each service actually wants.
