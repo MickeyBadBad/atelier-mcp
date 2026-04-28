@@ -124,3 +124,35 @@ def slim_polyhaven(raw: dict) -> dict:
         if k in raw:
             out[k] = raw[k]
     return out
+
+
+def _is_empty_search_result(raw: dict, service: str) -> bool:
+    """True if the search response shape indicates 'no hits'."""
+    if not isinstance(raw, dict) or raw.get("error"):
+        return False
+    if service == "sketchfab":
+        return raw.get("results") == []
+    if service == "polyhaven":
+        return raw.get("assets") in ({}, None) or raw.get("returned_count") == 0
+    if service == "ambientcg":
+        # ambientCG response shape varies — handle both common forms
+        if "assets" in raw:
+            return not raw["assets"]
+        if "foundAssets" in raw:
+            return not raw["foundAssets"]
+    return False
+
+
+def attach_zero_result_hint(raw: dict, service: str) -> dict:
+    """If the search returned 0 hits, append a hint pointing at
+    asset_query_help. Pure data — no I/O. Pass-through if not empty."""
+    if not _is_empty_search_result(raw, service):
+        return raw
+    out = dict(raw)
+    out["hint"] = (
+        f"Search returned 0 results. Common reasons for empty {service} "
+        f"responses are documented in asset_query_help — pitfalls + "
+        f"fallback_ladder per service. Try the next entry in the ladder."
+    )
+    out["cheatsheet_call"] = f"asset_query_help(service='{service}')"
+    return out

@@ -449,3 +449,40 @@ def test_render_image_returns_preview_when_requested(tmp_path, monkeypatch):
     # Should be valid base64
     base64.b64decode(out["preview_b64"])
 
+
+def test_zero_result_search_includes_query_help_hint(monkeypatch):
+    """When a Sketchfab search returns 0 results, the response includes
+    a `hint` and a `cheatsheet_call` pointing at asset_query_help.
+    Same for PolyHaven + ambientCG."""
+    import sys, os
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    if "blender_mcp.server" in sys.modules:
+        del sys.modules["blender_mcp.server"]
+
+    from blender_mcp._filters import attach_zero_result_hint
+
+    sketchfab_zero = {"results": []}
+    out = attach_zero_result_hint(sketchfab_zero, service="sketchfab")
+    assert out["results"] == []
+    assert "hint" in out
+    assert "asset_query_help" in out["cheatsheet_call"]
+    assert "sketchfab" in out["cheatsheet_call"]
+
+    # PolyHaven
+    polyhaven_zero = {"assets": {}, "total_count": 0, "returned_count": 0}
+    out = attach_zero_result_hint(polyhaven_zero, service="polyhaven")
+    assert "hint" in out
+    assert "polyhaven" in out["cheatsheet_call"]
+
+    # ambientCG variants
+    ambient_zero_a = {"assets": []}
+    ambient_zero_b = {"foundAssets": {}}
+    for raw in (ambient_zero_a, ambient_zero_b):
+        out = attach_zero_result_hint(raw, service="ambientcg")
+        assert "hint" in out
+
+    # Non-zero result is passed through untouched
+    nonzero = {"results": [{"uid": "x"}]}
+    out = attach_zero_result_hint(nonzero, service="sketchfab")
+    assert "hint" not in out
+

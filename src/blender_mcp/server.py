@@ -1068,6 +1068,8 @@ def search_ambientcg_assets(
         "category": category,
         "limit": limit,
     }))
+    from ._filters import attach_zero_result_hint
+    result = attach_zero_result_hint(result, service="ambientcg")
     return result
 
 
@@ -1944,9 +1946,11 @@ def search_polyhaven_assets(
         "asset_type": asset_type,
         "categories": categories
     }))
+    from ._filters import attach_zero_result_hint
     if concise:
         from ._filters import slim_polyhaven
         result = slim_polyhaven(result)
+    result = attach_zero_result_hint(result, service="polyhaven")
     return result
 
 @mcp.tool()
@@ -2085,9 +2089,11 @@ def search_sketchfab_models(
         "count": count,
         "downloadable": downloadable,
     }))
+    from ._filters import attach_zero_result_hint
     if concise:
         from ._filters import slim_sketchfab
         result = slim_sketchfab(result)
+    result = attach_zero_result_hint(result, service="sketchfab")
     return result
 
 @mcp.tool()
