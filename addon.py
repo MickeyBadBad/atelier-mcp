@@ -23,7 +23,7 @@ from contextlib import redirect_stdout, suppress
 bl_info = {
     "name": "Blender MCP",
     "author": "BlenderMCP",
-    "version": (1, 2),
+    "version": (2, 0, 0),
     "blender": (3, 0, 0),
     "location": "View3D > Sidebar > BlenderMCP",
     "description": "Connect Blender to Claude via MCP",
@@ -277,6 +277,13 @@ class BlenderMCPServer:
             "openai_api_key",
             "BLENDERMCP_OPENAI_API_KEY",
         )
+
+    def _get_openai_base_url(self):
+        return self._get_config_value(
+            "blendermcp_openai_base_url",
+            "openai_base_url",
+            "BLENDERMCP_OPENAI_BASE_URL",
+        ) or "https://api.openai.com/v1"
 
     def _get_hyper3d_api_key(self):
         # Let the free-trial button temporarily override persistent keys
@@ -543,8 +550,8 @@ class BlenderMCPServer:
         if bpy.context.scene.blendermcp_use_hyper3d:
             polyhaven_handlers = {
                 "create_rodin_job": self.create_rodin_job,
-                "poll_rodin_job_status": self.poll_rodin_job_status,
-                "import_generated_asset": self.import_generated_asset,
+                "poll_hyper3d_job_status": self.poll_hyper3d_job_status,
+                "import_hyper3d_asset": self.import_hyper3d_asset,
             }
             handlers.update(polyhaven_handlers)
 
@@ -562,7 +569,7 @@ class BlenderMCPServer:
             hunyuan_handlers = {
                 "create_hunyuan_job": self.create_hunyuan_job,
                 "poll_hunyuan_job_status": self.poll_hunyuan_job_status,
-                "import_generated_asset_hunyuan": self.import_generated_asset_hunyuan
+                "import_hunyuan3d_asset": self.import_hunyuan3d_asset
             }
             handlers.update(hunyuan_handlers)
 
@@ -3068,6 +3075,302 @@ class BlenderMCPServer:
         return self._import_glb_from_url(glb_url, target_size,
                                          service="meshy", task_id=task_id)
 
+    # ---- Hyper3D / Hunyuan3D sync wrappers --------------------------
+    #
+    # These mirror the pattern used by generate_tripo3d_text_to_3d and
+    # generate_meshy_text_to_3d: a single sync call that drives the
+    # multi-step legacy flow (create job → poll → import) to completion.
+    #
+    # They exist so that generate_3d_smart can route to hyper3d/hunyuan3d
+    # the same way it routes to tripo3d/meshy. Without them the smart
+    # router would AttributeError on those branches (the names only
+    # existed as MCP wrappers in server.py, not on BlenderMCPServer).
+    #
+    # Return shape matches generate_meshy_text_to_3d on success:
+    #   {"service", "task_id", "imported_objects", "imported_roots",
+    #    "scale_factor_applied", "target_size", ...service-specific keys}
+    # And uses {"error": ..., ...context} on failure (no exceptions
+    # raised — the @tool_envelope decorator on the MCP wrapper handles
+    # ok=False conversion at the boundary).
+
+    def generate_hyper3d_text_to_3d(self, prompt, target_size=2.0,
+                                     max_wait_seconds=180, poll_interval=2.5,
+                                     bbox_condition=None, name="Hyper3DGenerated"):
+        """Sync wrapper: create_rodin_job → poll_hyper3d_job_status →
+        import_hyper3d_asset.
+
+        Handles both Hyper3D Rodin modes (MAIN_SITE → subscription_key +
+        task_uuid; FAL_AI → request_id). Returns a meshy-style result
+        dict so generate_3d_smart can attach chosen_provider metadata.
+        """
+        # 1. Determine which mode we're in so we know how to extract
+        #    identifiers from the create response and which terminal
+        #    statuses to look for. We import bpy lazily because this
+        #    method may run in headless test contexts where bpy isn't
+        #    available — but generate_3d_smart only calls us when
+        #    check_services already confirmed hyper3d is ready, which
+        #    implies bpy is live.
+        try:
+            mode = bpy.context.scene.blendermcp_hyper3d_mode
+        except Exception:
+            # Default to MAIN_SITE shape if scene props aren't available.
+            mode = "MAIN_SITE"
+
+        # 2. Kick off the job.
+        create_result = self.create_rodin_job(
+            text_prompt=prompt,
+            images=None,
+            bbox_condition=bbox_condition,
+        )
+        if not isinstance(create_result, dict):
+            return {"error": f"create_rodin_job returned non-dict: {create_result!r}",
+                    "service": "hyper3d", "stage": "create"}
+        if "error" in create_result:
+            return {"error": create_result["error"],
+                    "service": "hyper3d", "stage": "create"}
+
+        # Extract identifiers per mode.
+        task_uuid = None
+        subscription_key = None
+        request_id = None
+        if mode == "MAIN_SITE":
+            if not create_result.get("submit_time"):
+                return {"error": f"Rodin create did not return submit_time: {create_result}",
+                        "service": "hyper3d", "stage": "create"}
+            task_uuid = create_result.get("uuid")
+            jobs = create_result.get("jobs") or {}
+            subscription_key = jobs.get("subscription_key")
+            if not (task_uuid and subscription_key):
+                return {"error": f"Missing uuid/subscription_key in create response: {create_result}",
+                        "service": "hyper3d", "stage": "create"}
+        elif mode == "FAL_AI":
+            request_id = create_result.get("request_id")
+            if not request_id:
+                return {"error": f"Missing request_id in FAL_AI create response: {create_result}",
+                        "service": "hyper3d", "stage": "create"}
+        else:
+            return {"error": f"Unknown Hyper3D Rodin mode: {mode}",
+                    "service": "hyper3d", "stage": "create"}
+
+        # 3. Poll until done.
+        deadline = time.time() + max_wait_seconds
+        last_status = None
+        done = False
+        while time.time() < deadline:
+            try:
+                if mode == "MAIN_SITE":
+                    status_result = self.poll_hyper3d_job_status(
+                        subscription_key=subscription_key)
+                    if isinstance(status_result, dict) and "error" in status_result:
+                        return {"error": status_result["error"],
+                                "service": "hyper3d", "stage": "poll",
+                                "task_uuid": task_uuid}
+                    statuses = (status_result or {}).get("status_list") or []
+                    last_status = statuses
+                    if statuses and any(s == "Failed" for s in statuses):
+                        return {"error": f"Hyper3D job failed: {statuses}",
+                                "service": "hyper3d", "stage": "poll",
+                                "task_uuid": task_uuid}
+                    # All terminal-success means every status is "Done".
+                    if statuses and all(s in ("Done", "Canceled") for s in statuses):
+                        if any(s == "Canceled" for s in statuses):
+                            return {"error": f"Hyper3D job canceled: {statuses}",
+                                    "service": "hyper3d", "stage": "poll",
+                                    "task_uuid": task_uuid}
+                        done = True
+                        break
+                else:  # FAL_AI
+                    status_result = self.poll_hyper3d_job_status(
+                        request_id=request_id)
+                    if isinstance(status_result, dict) and "error" in status_result:
+                        return {"error": status_result["error"],
+                                "service": "hyper3d", "stage": "poll",
+                                "request_id": request_id}
+                    last_status = (status_result or {}).get("status")
+                    if last_status == "COMPLETED":
+                        done = True
+                        break
+                    if last_status not in ("IN_PROGRESS", "IN_QUEUE", None):
+                        return {"error": f"Hyper3D FAL job ended with status {last_status}",
+                                "service": "hyper3d", "stage": "poll",
+                                "request_id": request_id,
+                                "task_data": status_result}
+            except Exception as e:
+                # Transient — keep polling.
+                last_status = f"poll-exception: {e}"
+            time.sleep(poll_interval)
+
+        if not done:
+            return {"error": f"Hyper3D generation timed out after {max_wait_seconds}s "
+                              f"(last status: {last_status})",
+                    "service": "hyper3d", "stage": "timeout",
+                    "task_uuid": task_uuid, "request_id": request_id}
+
+        # 4. Import.
+        if mode == "MAIN_SITE":
+            import_result = self.import_hyper3d_asset(
+                task_uuid=task_uuid, name=name)
+        else:
+            import_result = self.import_hyper3d_asset(
+                request_id=request_id, name=name)
+
+        if not isinstance(import_result, dict):
+            return {"error": f"import_hyper3d_asset returned non-dict: {import_result!r}",
+                    "service": "hyper3d", "stage": "import",
+                    "task_uuid": task_uuid, "request_id": request_id}
+        if not import_result.get("succeed"):
+            return {"error": import_result.get("error", "import failed"),
+                    "service": "hyper3d", "stage": "import",
+                    "task_uuid": task_uuid, "request_id": request_id,
+                    "task_data": import_result}
+
+        # 5. Build a result dict that mirrors meshy/tripo3d output so
+        #    generate_3d_smart's downstream metadata-mutation code (which
+        #    just does result[...] = ...) keeps working.
+        imported_name = import_result.get("name")
+        return {
+            "service": "hyper3d",
+            "task_id": task_uuid or request_id,
+            "task_uuid": task_uuid,
+            "request_id": request_id,
+            "mode": mode,
+            "imported_objects": [imported_name] if imported_name else [],
+            "imported_roots": [imported_name] if imported_name else [],
+            # The legacy import path doesn't return scale_factor; the
+            # Rodin GLB is already normalized to ~unit size, so callers
+            # should rely on world_bounding_box if they need exact size.
+            "scale_factor_applied": None,
+            "target_size": float(target_size) if target_size else None,
+            "world_bounding_box": import_result.get("world_bounding_box"),
+            "succeed": True,
+        }
+
+    def generate_hunyuan3d_model(self, text_prompt=None, image=None,
+                                  target_size=2.0,
+                                  max_wait_seconds=300, poll_interval=3.0,
+                                  name="Hunyuan3DGenerated"):
+        """Sync wrapper: create_hunyuan_job → poll_hunyuan_job_status →
+        import_hunyuan3d_asset.
+
+        Two Hunyuan3D modes are supported:
+        - OFFICIAL_API (Tencent Cloud): create returns {"Response": {"JobId":
+          ...}}; poll returns {"Response": {"Status": "DONE"|"RUN"|...,
+          "ResultFile3Ds": [{"Url": "..."}]}}; import takes zip_file_url.
+        - LOCAL_API: create_hunyuan_job_local_site is itself synchronous
+          and imports inline, returning {"status": "DONE"} on success — we
+          short-circuit and return that.
+        """
+        try:
+            mode = bpy.context.scene.blendermcp_hunyuan3d_mode
+        except Exception:
+            mode = "OFFICIAL_API"
+
+        # 1. Kick off the job.
+        create_result = self.create_hunyuan_job(
+            text_prompt=text_prompt,
+            image=image,
+        )
+        if not isinstance(create_result, dict):
+            return {"error": f"create_hunyuan_job returned non-dict: {create_result!r}",
+                    "service": "hunyuan3d", "stage": "create"}
+        if "error" in create_result:
+            return {"error": create_result["error"],
+                    "service": "hunyuan3d", "stage": "create"}
+
+        # LOCAL_API path is synchronous — it imports inline. We just pass
+        # its result through with a normalized shape.
+        if mode == "LOCAL_API":
+            if create_result.get("status") == "DONE":
+                return {
+                    "service": "hunyuan3d",
+                    "mode": mode,
+                    "task_id": None,
+                    "imported_objects": [],   # local API doesn't surface names
+                    "imported_roots": [],
+                    "scale_factor_applied": None,
+                    "target_size": float(target_size) if target_size else None,
+                    "succeed": True,
+                    "message": create_result.get("message"),
+                }
+            return {"error": f"Local Hunyuan3D returned unexpected: {create_result}",
+                    "service": "hunyuan3d", "stage": "create"}
+
+        # OFFICIAL_API path: extract JobId.
+        response_payload = create_result.get("Response") or {}
+        raw_job_id = response_payload.get("JobId")
+        if not raw_job_id:
+            return {"error": f"Missing JobId in Hunyuan create response: {create_result}",
+                    "service": "hunyuan3d", "stage": "create"}
+        job_id = f"job_{raw_job_id}"
+
+        # 2. Poll.
+        deadline = time.time() + max_wait_seconds
+        last_status = None
+        zip_file_url = None
+        done = False
+        while time.time() < deadline:
+            try:
+                status_result = self.poll_hunyuan_job_status(job_id=job_id)
+                if isinstance(status_result, dict) and "error" in status_result:
+                    return {"error": status_result["error"],
+                            "service": "hunyuan3d", "stage": "poll",
+                            "job_id": job_id}
+                resp = (status_result or {}).get("Response") or {}
+                last_status = resp.get("Status")
+                if last_status == "DONE":
+                    files = resp.get("ResultFile3Ds") or []
+                    if files:
+                        # Tencent's response uses "Url"; fall back to lowercase
+                        # in case API casing changes.
+                        zip_file_url = files[0].get("Url") or files[0].get("url")
+                    if not zip_file_url:
+                        return {"error": f"Hunyuan DONE but no ResultFile3Ds URL: {status_result}",
+                                "service": "hunyuan3d", "stage": "poll",
+                                "job_id": job_id}
+                    done = True
+                    break
+                if last_status not in ("RUN", "WAIT", None, "INIT"):
+                    # Anything not actively-running is treated as failure.
+                    return {"error": f"Hunyuan job ended with status {last_status}",
+                            "service": "hunyuan3d", "stage": "poll",
+                            "job_id": job_id, "task_data": status_result}
+            except Exception as e:
+                last_status = f"poll-exception: {e}"
+            time.sleep(poll_interval)
+
+        if not done:
+            return {"error": f"Hunyuan3D generation timed out after {max_wait_seconds}s "
+                              f"(last status: {last_status})",
+                    "service": "hunyuan3d", "stage": "timeout",
+                    "job_id": job_id}
+
+        # 3. Import.
+        import_result = self.import_hunyuan3d_asset(
+            name=name, zip_file_url=zip_file_url)
+        if not isinstance(import_result, dict):
+            return {"error": f"import_hunyuan3d_asset returned non-dict: {import_result!r}",
+                    "service": "hunyuan3d", "stage": "import",
+                    "job_id": job_id}
+        if not import_result.get("succeed"):
+            return {"error": import_result.get("error", "import failed"),
+                    "service": "hunyuan3d", "stage": "import",
+                    "job_id": job_id, "task_data": import_result}
+
+        imported_name = import_result.get("name")
+        return {
+            "service": "hunyuan3d",
+            "mode": mode,
+            "task_id": job_id,
+            "job_id": job_id,
+            "imported_objects": [imported_name] if imported_name else [],
+            "imported_roots": [imported_name] if imported_name else [],
+            "scale_factor_applied": None,
+            "target_size": float(target_size) if target_size else None,
+            "world_bounding_box": import_result.get("world_bounding_box"),
+            "zip_file_url": zip_file_url,
+            "succeed": True,
+        }
+
     # ---- Aggregate diagnostic --------------------------------------
 
     def check_services(self):
@@ -3077,7 +3380,7 @@ class BlenderMCPServer:
         """
         report = {
             "blender_version": list(bpy.app.version),
-            "addon_version": "1.9.0+fork.1",
+            "addon_version": "2.0.0+fork.1",
             "services": {},
         }
 
@@ -3247,9 +3550,11 @@ class BlenderMCPServer:
 
     def generate_3d_smart(self, prompt, quality="standard",
                           max_credits=None, prefer_provider=None,
-                          target_size=2.0, max_wait_seconds=240):
-        """Route a text-to-3D request to the best-available AI provider
-        based on quality target, configured services, and remaining budget.
+                          target_size=2.0, max_wait_seconds=240,
+                          reference_image_url=None):
+        """Route a text-to-3D (or image-to-3D) request to the best-available
+        AI provider based on quality target, configured services, and
+        remaining budget.
 
         Quality tiers:
         - 'fast'     — minimum credits, OK for blockouts. Tries Hyper3D
@@ -3261,6 +3566,12 @@ class BlenderMCPServer:
 
         prefer_provider: override auto-selection ('tripo3d', 'meshy', 'hyper3d').
         max_credits: skip a provider if its estimated cost exceeds this.
+        reference_image_url: optional public image URL. When provided AND the
+            chosen provider is Tripo3D or Meshy, the image-to-3D variant is
+            used instead of text-to-3D. Hyper3D and Hunyuan3D currently fall
+            back to the text path in this release (image-input wrappers for
+            those providers are a future sprint). Public URLs only — file
+            uploads are out of scope.
         Returns the provider chosen + the underlying generation result.
         """
         # 1. Survey what's actually configured + reachable
@@ -3270,11 +3581,13 @@ class BlenderMCPServer:
         if not ai_providers_ready:
             return {"error": "No AI 3D provider configured. Run check_services to see what's missing."}
 
-        # 2. Cost estimates by provider × quality
+        # 2. Cost estimates by provider × quality (median of observed runs;
+        #    recalibrated 2026-04 — 'best' Tripo3D was 10 but typical is ~6
+        #    which made max_credits=8 wrongly skip Tripo3D)
         cost_estimates = {
             ("tripo3d", "fast"):     3,    # Turbo or v2.5 minimal
             ("tripo3d", "standard"): 5,
-            ("tripo3d", "best"):     10,
+            ("tripo3d", "best"):     6,    # was 10 — see calibration note above
             ("meshy", "fast"):       20,   # preview only
             ("meshy", "standard"):   20,
             ("meshy", "best"):       40,   # preview + refine
@@ -3333,39 +3646,69 @@ class BlenderMCPServer:
                 "standard": "v2.5-20250123",
                 "best":     "v3.1-20260211",
             }[quality]
-            result = self.generate_tripo3d_text_to_3d(
-                prompt=prompt, model_version=model_version,
-                texture=True, pbr=(quality != "fast"),
-                face_limit=20000 if quality == "fast" else 30000,
-                target_size=target_size,
-                max_wait_seconds=max_wait_seconds,
-            )
+            if reference_image_url:
+                # Image-to-3D path. Tripo's image_to_3d wrapper doesn't take
+                # a face_limit kwarg today; pass the args it actually accepts.
+                result = self.generate_tripo3d_image_to_3d(
+                    image_url=reference_image_url,
+                    model_version=model_version,
+                    texture=True, pbr=(quality != "fast"),
+                    target_size=target_size,
+                    max_wait_seconds=max_wait_seconds,
+                )
+            else:
+                result = self.generate_tripo3d_text_to_3d(
+                    prompt=prompt, model_version=model_version,
+                    texture=True, pbr=(quality != "fast"),
+                    face_limit=20000 if quality == "fast" else 30000,
+                    target_size=target_size,
+                    max_wait_seconds=max_wait_seconds,
+                )
         elif chosen == "meshy":
-            result = self.generate_meshy_text_to_3d(
-                prompt=prompt, ai_model="meshy-6",
-                topology="quad", target_polycount=20000 if quality == "fast" else 30000,
-                enable_pbr=(quality == "best"),
-                refine=(quality == "best"),
+            if reference_image_url:
+                # Meshy image_to_3d takes enable_pbr / topology / target_polycount,
+                # not ai_model / refine — pass only what's relevant.
+                result = self.generate_meshy_image_to_3d(
+                    image_url=reference_image_url,
+                    enable_pbr=(quality == "best"),
+                    topology="quad",
+                    target_polycount=20000 if quality == "fast" else 30000,
+                    target_size=target_size,
+                    max_wait_seconds=max_wait_seconds,
+                )
+            else:
+                result = self.generate_meshy_text_to_3d(
+                    prompt=prompt, ai_model="meshy-6",
+                    topology="quad", target_polycount=20000 if quality == "fast" else 30000,
+                    enable_pbr=(quality == "best"),
+                    refine=(quality == "best"),
+                    target_size=target_size,
+                    max_wait_seconds=max_wait_seconds,
+                )
+        elif chosen == "hyper3d":
+            # Real delegation — pre-v2 we returned fallback_required and
+            # asked the caller to invoke generate_hyper3d_text_to_3d
+            # themselves. That defeated the point of a "smart" router.
+            #
+            # If reference_image_url is set we silently fall back to the text
+            # path: Task 8 only added a text-to-3D sync wrapper for Hyper3D,
+            # and the legacy create_rodin_job(images=...) flow is deferred to
+            # a future sprint. The text prompt still drives generation, so
+            # the call doesn't error out.
+            result = self.generate_hyper3d_text_to_3d(
+                prompt=prompt,
                 target_size=target_size,
                 max_wait_seconds=max_wait_seconds,
             )
-        elif chosen == "hyper3d":
-            # Hyper3D requires the create_rodin_job command (legacy path).
-            # We surface a hint to call generate_hyper3d_model_via_text via
-            # the existing MCP wrapper.
-            return {"chosen_provider": "hyper3d",
-                    "fallback_required": True,
-                    "message": "generate_3d_smart selected Hyper3D Rodin. "
-                               "Call generate_hyper3d_model_via_text(prompt=...) directly — "
-                               "Rodin's two-stage flow needs explicit polling.",
-                    "estimated_cost_credits": estimated_cost}
         elif chosen == "hunyuan3d":
-            return {"chosen_provider": "hunyuan3d",
-                    "fallback_required": True,
-                    "message": "generate_3d_smart selected Hunyuan3D. "
-                               "Call generate_hunyuan3d_model directly — Tencent path "
-                               "needs SecretId/Key auth.",
-                    "estimated_cost_credits": estimated_cost}
+            # Real delegation — same fix as hyper3d above.
+            # Hunyuan3D's image-input mode is also a future-sprint expansion;
+            # for now we route to the text path even if reference_image_url
+            # is set.
+            result = self.generate_hunyuan3d_model(
+                text_prompt=prompt,
+                target_size=target_size,
+            )
 
         # 6. Account for usage on success
         if isinstance(result, dict) and "error" not in result and chosen in ("tripo3d", "meshy"):
@@ -3409,9 +3752,10 @@ class BlenderMCPServer:
                     "https://platform.openai.com/api-keys (NOTE: this is "
                     "separate billing from ChatGPT Plus/Pro). Set in Blender "
                     "prefs or BLENDERMCP_OPENAI_API_KEY env var."}
+        base = self._get_openai_base_url().rstrip("/")
         try:
             # Cheap auth check — list models endpoint
-            r = requests.get(f"{self.OPENAI_BASE}/models",
+            r = requests.get(f"{base}/models",
                              headers={"Authorization": f"Bearer {key}"},
                              timeout=10)
             if r.status_code == 401:
@@ -3427,8 +3771,15 @@ class BlenderMCPServer:
     def generate_image_openai(self, prompt, model="dall-e-3",
                               size="1024x1024", quality="standard",
                               save_to=None, n=1, style=None):
-        """Generate an image via OpenAI's image-generation API and save it
-        to disk (default: <project_root>/references/ai_generated/).
+        """Generate an image via an OpenAI-compatible image-generation API
+        and save it to disk (default: <project_root>/references/ai_generated/).
+
+        The base URL is configurable via the OpenAI base URL preference (or
+        BLENDERMCP_OPENAI_BASE_URL env var). Defaults to
+        https://api.openai.com/v1, but any OpenAI-compatible endpoint
+        works — Comfly (https://ai.comfly.chat/v1), OpenRouter
+        (https://openrouter.ai/api/v1), self-hosted vLLM, etc. The
+        path suffix /images/generations is consistent across providers.
 
         Use cases:
         - Mood-board / concept art for design briefs
@@ -3437,7 +3788,10 @@ class BlenderMCPServer:
 
         Parameters:
         - prompt: text description (DALL-E 3 max ~4000 chars)
-        - model: 'dall-e-3' (older, $0.04+) or 'gpt-image-1' (newer, varies)
+        - model: 'dall-e-3' (older, $0.04+) or 'gpt-image-1' (newer, varies).
+                 Comfly/OpenRouter may expose proxy aliases like
+                 'gpt-image-2' or 'gemini-3.1-flash-image-preview-2k' —
+                 those names are passed through verbatim.
         - size: dall-e-3: '1024x1024' / '1024x1792' / '1792x1024'
                 gpt-image-1: '1024x1024' / '1024x1536' / '1536x1024'
         - quality: dall-e-3: 'standard' or 'hd'
@@ -3450,8 +3804,10 @@ class BlenderMCPServer:
         Returns saved path + revised prompt (DALL-E 3 always rewrites your
         prompt internally) + dollars spent.
 
-        IMPORTANT: ChatGPT Plus subscription does NOT cover this. API
-        credits are billed separately on platform.openai.com.
+        IMPORTANT: ChatGPT Plus subscription does NOT cover api.openai.com.
+        For OpenAI-direct, API credits are billed separately on
+        platform.openai.com. For Comfly/OpenRouter/vLLM, billing follows
+        that provider's rules.
         """
         key = self._get_openai_api_key()
         if not key:
@@ -3480,11 +3836,18 @@ class BlenderMCPServer:
             body["quality"] = quality
             # Note: gpt-image-1 may also accept 'response_format'
         else:
-            return {"error": f"Unsupported model '{model}'. Use 'dall-e-3' or 'gpt-image-1'."}
+            # Provider-specific alias (e.g. Comfly's 'gpt-image-2',
+            # 'gemini-3.1-flash-image-preview-2k', OpenRouter passthrough
+            # names). Pass through verbatim — the upstream OpenAI-compatible
+            # endpoint decides what's valid. We only set fields that vanilla
+            # OpenAI requires; quality/style/response_format are omitted so
+            # we don't pollute requests with options the alias may reject.
+            pass
 
+        base = self._get_openai_base_url().rstrip("/")
         try:
             r = requests.post(
-                f"{self.OPENAI_BASE}/images/generations",
+                f"{base}/images/generations",
                 headers={"Authorization": f"Bearer {key}",
                          "Content-Type": "application/json"},
                 json=body, timeout=120,
@@ -3783,7 +4146,8 @@ class BlenderMCPServer:
         except Exception as e:
             return {"error": str(e)}
 
-    def download_polyhaven_asset(self, asset_id, asset_type, resolution="1k", file_format=None):
+    def download_polyhaven_asset(self, asset_id, asset_type, resolution="1k", file_format=None,
+                                 target_size=None):
         try:
             # First get the files information
             files_response = requests.get(f"https://api.polyhaven.com/files/{asset_id}", headers=REQ_HEADERS)
@@ -4081,8 +4445,62 @@ class BlenderMCPServer:
                         else:
                             return {"error": f"Unsupported model format: {file_format}"}
 
-                        # Get the names of imported objects
-                        imported_objects = [obj.name for obj in bpy.context.selected_objects]
+                        # Get the imported objects (currently selected after import op)
+                        imported_objects_list = list(bpy.context.selected_objects)
+                        imported_objects = [obj.name for obj in imported_objects_list]
+
+                        # Optional rescaling — mirrors download_sketchfab_model.
+                        # Native PolyHaven model scales are inconsistent (props at
+                        # cm-scale, vehicles/buildings at m-scale); for archviz
+                        # users typically want a known target dim.
+                        if target_size is not None and asset_type == "models" and imported_objects_list:
+                            # Find root objects (no parent within imported set)
+                            imported_set = set(imported_objects_list)
+                            root_objects = [
+                                obj for obj in imported_objects_list
+                                if obj.parent is None or obj.parent not in imported_set
+                            ]
+
+                            def _get_all_mesh_children(obj):
+                                meshes = []
+                                if obj.type == 'MESH':
+                                    meshes.append(obj)
+                                for child in obj.children:
+                                    meshes.extend(_get_all_mesh_children(child))
+                                return meshes
+
+                            all_meshes = []
+                            for obj in root_objects:
+                                all_meshes.extend(_get_all_mesh_children(obj))
+
+                            if all_meshes:
+                                # Compute combined world bbox
+                                all_min = mathutils.Vector((float('inf'), float('inf'), float('inf')))
+                                all_max = mathutils.Vector((float('-inf'), float('-inf'), float('-inf')))
+                                for mesh_obj in all_meshes:
+                                    for corner in mesh_obj.bound_box:
+                                        world_corner = mesh_obj.matrix_world @ mathutils.Vector(corner)
+                                        all_min.x = min(all_min.x, world_corner.x)
+                                        all_min.y = min(all_min.y, world_corner.y)
+                                        all_min.z = min(all_min.z, world_corner.z)
+                                        all_max.x = max(all_max.x, world_corner.x)
+                                        all_max.y = max(all_max.y, world_corner.y)
+                                        all_max.z = max(all_max.z, world_corner.z)
+                                max_dim = max(
+                                    all_max.x - all_min.x,
+                                    all_max.y - all_min.y,
+                                    all_max.z - all_min.z,
+                                )
+                                if max_dim > 0:
+                                    scale_factor = float(target_size) / max_dim
+                                    # Apply scale only to roots — children inherit via matrix_world
+                                    for root in root_objects:
+                                        root.scale = (
+                                            root.scale.x * scale_factor,
+                                            root.scale.y * scale_factor,
+                                            root.scale.z * scale_factor,
+                                        )
+                                    bpy.context.view_layer.update()
 
                         return {
                             "success": True,
@@ -4546,7 +4964,7 @@ class BlenderMCPServer:
         except Exception as e:
             return {"error": str(e)}
 
-    def poll_rodin_job_status(self, *args, **kwargs):
+    def poll_hyper3d_job_status(self, *args, **kwargs):
         match bpy.context.scene.blendermcp_hyper3d_mode:
             case "MAIN_SITE":
                 return self.poll_rodin_job_status_main_site(*args, **kwargs)
@@ -4655,7 +5073,7 @@ class BlenderMCPServer:
 
         return mesh_obj
 
-    def import_generated_asset(self, *args, **kwargs):
+    def import_hyper3d_asset(self, *args, **kwargs):
         match bpy.context.scene.blendermcp_hyper3d_mode:
             case "MAIN_SITE":
                 return self.import_generated_asset_main_site(*args, **kwargs)
@@ -5559,10 +5977,10 @@ class BlenderMCPServer:
         except Exception as e:
             return {"error": str(e)}
 
-    def import_generated_asset_hunyuan(self, *args, **kwargs):
-        return self.import_generated_asset_hunyuan_ai(*args, **kwargs)
-            
-    def import_generated_asset_hunyuan_ai(self, name: str , zip_file_url: str):
+    def import_hunyuan3d_asset(self, *args, **kwargs):
+        return self.import_hunyuan3d_asset_ai(*args, **kwargs)
+
+    def import_hunyuan3d_asset_ai(self, name: str , zip_file_url: str):
         if not zip_file_url:
             return {"error": "Zip file not found"}
         
@@ -5655,6 +6073,7 @@ def _persist_credentials(self, context):
         "sketchfab_api_key", "hyper3d_api_key",
         "hunyuan3d_secret_id", "hunyuan3d_secret_key", "hunyuan3d_api_url",
         "tripo3d_api_key", "meshy_api_key", "openai_api_key",
+        "openai_base_url",
     )
     snapshot = {f: getattr(self, f, "") for f in cred_fields}
     # Sidecar JSON write (atomic via tmp + rename)
@@ -5700,14 +6119,87 @@ def _load_credentials_from_sidecar():
         print(f"[blender-mcp] credential sidecar restore failed: {e}")
 
 
+# --------------------------------------------------------------------------
+# Service registry — minimal seed for Sprint 5; full god-class refactor in
+# Sprint 10 reuses the same Service dataclass and field names.
+# --------------------------------------------------------------------------
+from dataclasses import dataclass, field
+from typing import Optional, List
+
+
+@dataclass
+class Service:
+    name: str
+    """Lower-snake-case key (matches BLENDERMCP_<NAME>_API_KEY env var stem)."""
+
+    needs_key: bool
+    """If True, calls fail with NO_API_KEY when no key is configured."""
+
+    key_pref: Optional[str] = None
+    """Field name on BlenderMCPAddonPreferences holding the persistent key."""
+
+    setup_url: Optional[str] = None
+    """Where users get an API key — surfaced in error hints + N-panel link."""
+
+    free_tier: bool = False
+    """Indicates this provider is meaningfully usable without paying."""
+
+    description: str = ""
+
+
+SERVICE_REGISTRY: List[Service] = [
+    Service(name="polyhaven",   needs_key=False, free_tier=True,
+            setup_url="https://polyhaven.com/",
+            description="CC0 PBR textures + HDRIs + models, ~1900 assets"),
+    Service(name="ambientcg",   needs_key=False, free_tier=True,
+            setup_url="https://ambientcg.com/",
+            description="CC0 PBR materials, ~2000 assets"),
+    Service(name="sketchfab",   needs_key=True, free_tier=True,
+            key_pref="sketchfab_api_key",
+            setup_url="https://sketchfab.com/settings/password",
+            description="Massive 3D model library (CC + paid)"),
+    Service(name="hyper3d",     needs_key=True, free_tier=True,
+            key_pref="hyper3d_api_key",
+            setup_url="https://hyper3d.ai/",
+            description="AI 3D generation (Rodin) — built-in free trial key"),
+    Service(name="hunyuan3d",   needs_key=True, free_tier=False,
+            key_pref="hunyuan3d_secret_id",
+            setup_url="https://cloud.tencent.com/",
+            description="Tencent Hunyuan 3D AI generation (CN)"),
+    Service(name="tripo3d",     needs_key=True, free_tier=False,
+            key_pref="tripo3d_api_key",
+            setup_url="https://platform.tripo3d.ai/",
+            description="AI 3D generation (text/image-to-3D, full PBR)"),
+    Service(name="meshy",       needs_key=True, free_tier=False,
+            key_pref="meshy_api_key",
+            setup_url="https://www.meshy.ai/settings/api",
+            description="AI 3D generation (preview + refine, multi-format)"),
+    Service(name="openai",      needs_key=True, free_tier=False,
+            key_pref="openai_api_key",
+            setup_url="https://platform.openai.com/api-keys",
+            description="OpenAI-compatible image gen (DALL-E / Comfly / OpenRouter / vLLM via openai_base_url)"),
+    Service(name="codex",       needs_key=False, free_tier=True,
+            setup_url="https://github.com/openai/codex",
+            description="Codex CLI image gen via ChatGPT subscription quota"),
+]
+
+
+def get_service(name: str) -> Optional[Service]:
+    for s in SERVICE_REGISTRY:
+        if s.name == name:
+            return s
+    return None
+
+
 # Blender Addon Preferences
 class BLENDERMCP_AddonPreferences(bpy.types.AddonPreferences):
     bl_idname = __name__
 
     telemetry_consent: BoolProperty(
         name="Allow Telemetry",
-        description="Allow collection of prompts, code snippets, and screenshots to help improve Blender MCP",
-        default=True
+        description="Allow collection of prompts, code snippets, and screenshots to help improve Blender MCP. "
+                    "Off by default in this fork — opt-in only.",
+        default=False,
     )
     hyper3d_api_key: bpy.props.StringProperty(
         name="Hyper3D API Key",
@@ -5763,6 +6255,13 @@ class BLENDERMCP_AddonPreferences(bpy.types.AddonPreferences):
         default="",
         update=_persist_credentials,
     )
+    openai_base_url: bpy.props.StringProperty(
+        name="OpenAI base URL",
+        description="OpenAI-compatible API endpoint. Default: https://api.openai.com/v1. "
+                    "Use ai.comfly.chat/v1 for Comfly, openrouter.ai/api/v1 for OpenRouter, etc.",
+        default="https://api.openai.com/v1",
+        update=_persist_credentials,
+    )
 
     def draw(self, context):
         layout = self.layout
@@ -5800,6 +6299,7 @@ class BLENDERMCP_AddonPreferences(bpy.types.AddonPreferences):
         cred_box.prop(self, "tripo3d_api_key", text="Tripo3D API Key")
         cred_box.prop(self, "meshy_api_key", text="Meshy.ai API Key")
         cred_box.prop(self, "openai_api_key", text="OpenAI API Key")
+        cred_box.prop(self, "openai_base_url", text="OpenAI Base URL")
 
 # Blender UI Panel
 class BLENDERMCP_PT_Panel(bpy.types.Panel):
@@ -5925,10 +6425,22 @@ class BLENDERMCP_PT_Panel(bpy.types.Panel):
                      get_key_url="https://platform.openai.com/api-keys")
         if scene.blendermcp_use_openai:
             sb = ai_box.box()
+            sb.prop(scene, "blendermcp_openai_base_url", text="Base URL")
             if prefs:
                 sb.prop(prefs, "openai_api_key", text="API Key")
             else:
                 sb.prop(scene, "blendermcp_openai_api_key", text="API Key")
+            # Provider preset quick-set buttons
+            op_row = sb.row(align=True)
+            op_row.label(text="Preset:")
+            for label, url in (
+                ("Official",   "https://api.openai.com/v1"),
+                ("Comfly",     "https://ai.comfly.chat/v1"),
+                ("OpenRouter", "https://openrouter.ai/api/v1"),
+            ):
+                op = op_row.operator("wm.context_set_string", text=label)
+                op.data_path = "scene.blendermcp_openai_base_url"
+                op.value = url
             sb.label(text="⚠ Separate billing from ChatGPT Plus", icon='INFO')
 
         # Hunyuan3D (Tencent)
@@ -6126,6 +6638,11 @@ def register():
         description="API key from https://platform.openai.com/api-keys (separate from ChatGPT Plus)",
         default=""
     )
+    bpy.types.Scene.blendermcp_openai_base_url = bpy.props.StringProperty(
+        name="OpenAI base URL",
+        description="OpenAI-compatible API endpoint",
+        default="https://api.openai.com/v1",
+    )
 
     bpy.types.Scene.blendermcp_use_hunyuan3d = bpy.props.BoolProperty(
         name="Use Hunyuan 3D",
@@ -6259,6 +6776,8 @@ def unregister():
         del bpy.types.Scene.blendermcp_use_openai
     with suppress(Exception):
         del bpy.types.Scene.blendermcp_openai_api_key
+    with suppress(Exception):
+        del bpy.types.Scene.blendermcp_openai_base_url
     del bpy.types.Scene.blendermcp_use_hunyuan3d
     del bpy.types.Scene.blendermcp_hunyuan3d_mode
     del bpy.types.Scene.blendermcp_hunyuan3d_secret_id

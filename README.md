@@ -33,6 +33,9 @@ This fork ships those fixes plus design-workflow tools targeted at interior desi
 | **Smart routing for AI 3D (v1.10)** | **This fork** | **`generate_3d_smart(prompt, quality)` — picks the best of 4 providers based on quality target + configured services + remaining budget** |
 | **OpenAI image gen (v1.10)** | **This fork** | **DALL-E 3 + gpt-image-1 for textures, mood boards, image-to-3D refs (separate API billing — not covered by ChatGPT Plus)** |
 | **Codex CLI image gen (v1.10.1) — FREE for ChatGPT subscribers** | **This fork** | **`generate_image_codex` shells out to `codex exec` with `$imagegen` skill (model gpt-image-2). Counts against ChatGPT quota, not API billing.** |
+| **Unified tool envelope (v2.0)** | **This fork** | **All 56 `@mcp.tool()` responses now return `{ok, data?, error?}` JSON. LLM clients branch on `ok` + `error.code` instead of parsing free-form strings. BC-break — see CHANGELOG.** |
+| **OpenAI-compatible base_url (v2.0)** | **This fork** | **`openai_base_url` config field — point image gen at Comfly, OpenRouter, vLLM, or any OpenAI-API-compatible relay without code edits.** |
+| **Telemetry opt-in (v2.0)** | **This fork** | **`telemetry_consent` defaults to `False`. Upstream defaulted to on; we don't.** |
 | API-credential persistence | [#235](https://github.com/ahujasid/blender-mcp/pull/235) | Sketchfab/Hyper3D tokens lost on Blender restart |
 | Visual grounding verification | [#230](https://github.com/ahujasid/blender-mcp/pull/230) | "Is this furniture actually on the floor?" |
 | Distinguish addon vs transport errors | [#228](https://github.com/ahujasid/blender-mcp/pull/228) | "Communication error" misdiagnosis |
@@ -290,8 +293,8 @@ That's it — your AI client should now show a hammer 🔨 icon with `mcp__blend
 | **`generate_meshy_image_to_3d`** | 🆕 v1.9 — image-to-3D via Meshy.ai (URL or base64 data URI) |
 | **`get_tripo3d_status`** | 🆕 v1.9 — check Tripo3D credit balance |
 | **`get_meshy_status`** | 🆕 v1.9 — check Meshy.ai connectivity |
-| `generate_hyper3d_model_via_text` | Generate a 3D model from a text prompt (Hyper3D Rodin) |
-| `generate_hyper3d_model_via_images` | Generate a 3D model from reference images (Hyper3D Rodin) |
+| `generate_hyper3d_text_to_3d` | v2.0 — Generate a 3D model from a text prompt (Hyper3D Rodin). **Renamed from `generate_hyper3d_model_via_text` (no alias).** |
+| `generate_hyper3d_image_to_3d` | v2.0 — Generate a 3D model from reference images (Hyper3D Rodin). **Renamed from `generate_hyper3d_model_via_images` (no alias).** |
 | `generate_hunyuan3d_model` | Generate a 3D model via Tencent Hunyuan3D |
 
 ### Export & escape hatch
