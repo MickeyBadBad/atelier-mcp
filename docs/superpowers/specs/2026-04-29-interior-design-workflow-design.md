@@ -32,6 +32,54 @@ The user cannot:
 - Not a vendor for any specific style — the handbook covers a curated set; users can extend
 - Not a multi-tenant platform — single-user local toolchain
 
+## Sources & Citation Policy (HARD RULE)
+
+The user has zero design background and is fully delegating design judgment to the AI. If the AI invents rules or numbers, the user has no way to detect bad output. Therefore:
+
+**Every numeric value, range, rule, code reference, or design heuristic in this project must be fetched from an authoritative public source and cited inline.** The implementation must NOT generate handbook content from model training memory.
+
+### Authoritative source list (priority order)
+
+| Domain | Primary sources |
+|---|---|
+| Chinese building codes | GB 50096-2011 住宅设计规范 · GB 50352-2019 民用建筑设计统一标准 · GB 50034-2013 建筑照明设计标准 · GB 50763-2012 无障碍设计规范 · GB 50016-2014 建筑设计防火规范 |
+| International codes | IBC (International Building Code) · ADA Standards · ASHRAE 55 (thermal comfort) |
+| Spatial / furniture standards | Neufert Architects' Data (current edition) · Time-Saver Standards for Interior Design · Human Dimension & Interior Space (Panero & Zelnik) |
+| Lighting | IES Lighting Handbook (current edition) · CIE 13.3 (color rendering) · GB 50034-2013 |
+| Materials / PBR | Disney BSDF paper · Adobe Substance documentation · Blender Manual (current version) · NCS / Pantone color references |
+| Camera / architectural photography | ASMP guidelines · Norman McGrath "Photographing Buildings Inside and Out" |
+| Acoustics | ASTM E90/E413 · NRC ratings · GB 50118-2010 民用建筑隔声设计规范 |
+| Style references | Architectural Digest · Dezeen · Wallpaper* · Architectural Record · AD China · 安邸 · 室内设计师 — for STYLE references, cite the publication or specific named project, not "common knowledge" |
+
+### Citation format
+
+Inline citations in handbook chapters:
+
+```markdown
+Living-room sofa-to-coffee-table clearance: 400-460mm
+(per Neufert Architects' Data, 5th ed., §"Living Rooms"; corroborated by
+Panero & Zelnik 1979 fig. 130).
+```
+
+```markdown
+Restaurant ambient illuminance: 75 lux average maintained
+(per GB 50034-2013 §5.1.5 Table 5.1.5; IES Lighting Handbook 10th ed.
+§29 corroborates 50-100 lx for fine dining).
+```
+
+### Implementation rules for Slice 1 (handbook authoring)
+
+- Each chapter authoring task MUST start with `WebFetch` / `WebSearch` calls to retrieve the actual standard text or current published guidance. **Do NOT write a chapter from memory and then "look up sources later".**
+- Every numeric range, classification, or rule statement in a chapter MUST have an inline citation pointing to a specific section, page, table, or figure of an identifiable source.
+- If no authoritative source can be found for a claim the AI wants to make, the chapter MUST state that explicitly ("conventions vary across sources X and Y; defaulting to range Z based on majority practice") rather than presenting a fabricated number.
+- Section numbers in standards (GB §, IES §, etc.) MUST be verified against the actual standard before citing. **No fabricated section numbers.**
+- For style chapters: cite real named projects or named publications. "Japanese 侘寂 typically uses X" without citation is forbidden; "侘寂 spaces in [Naoto Fukasawa's house, AD Japan 2018] use X" is required.
+- The `read_design_handbook` MCP tool returns chapter content **including the citations**, so quality gates and AI explanations always carry source attribution downstream.
+
+### Quality gate citation requirement
+
+Every quality-gate threshold (Section "Quality Gates — 9 Dimensions" below) must reference its source. The defaults shown in this document are placeholders pending citation; the implementation plan will replace each with the cited authoritative value.
+
 ## System Architecture
 
 Five layers, top-down:
@@ -371,14 +419,16 @@ Each space (multi-space project) gets a sub-collection prefix:
 ### Slice 1 — Knowledge Layer (handbook + skills + read tool)
 
 Deliverables:
-- 13 handbook chapters drafted (markdown only, no code)
-- 18 style files
-- 8 space-type files
+- 13 handbook chapters drafted (markdown only, no code) — **each chapter sourced via `WebFetch` from authoritative standards (GB, IES, Neufert, Substance, etc.) with inline citations on every numeric value or rule. No chapter may be written from training memory.**
+- 18 style files — each citing real named projects or named design publications, never generic "this style uses X" prose
+- 8 space-type files — each citing the relevant code section (GB / IBC / Neufert) for clearances and dimensions
 - 5 Claude skills with trigger phrases
-- 1 new MCP tool: `read_design_handbook(chapter, query)`
+- 1 new MCP tool: `read_design_handbook(chapter, query)` returning chapter content **with citations preserved**
 - Tests for skill triggering and chapter retrieval
 
-No Blender behavior changes. Goal: an AI talking through the system can already answer design questions using handbook content and route them to the right (still-existing) MCP tools.
+**Slice 1 acceptance gate**: a random sample of 10 numeric claims pulled from the handbook can each be traced to a specific cited source section / page / table.
+
+No Blender behavior changes. Goal: an AI talking through the system can already answer design questions using handbook content (with sources) and route them to the right (still-existing) MCP tools.
 
 ### Slice 2 — Discovery + Project Skeleton
 
