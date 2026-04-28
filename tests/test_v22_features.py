@@ -91,3 +91,47 @@ def test_generate_image_openai_extension_matches_content_type(tmp_path, monkeypa
     assert os.path.exists(rewritten)
     # The originally-requested .png path must NOT be created
     assert not os.path.exists(requested_path)
+
+
+def test_get_scene_info_full_returns_all_objects(monkeypatch):
+    """With full=True, get_scene_info returns every object in the scene
+    (no 10-item cap), each with name + type + bbox_center summary."""
+    import sys, os
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    if "addon" in sys.modules:
+        del sys.modules["addon"]
+    import addon
+
+    # Build 30 fake scene objects
+    class FakeObj:
+        def __init__(self, name, otype="MESH"):
+            self.name = name
+            self.type = otype
+            class V:
+                x = y = z = 0.0
+            self.location = V()
+            self.data = type("Data", (), {"polygons": [object()] * 5})()
+            self.bound_box = [(0, 0, 0)] * 8
+            self.matrix_world = None
+            self.children = []
+
+    objects = [FakeObj(f"Obj_{i:02d}") for i in range(30)]
+    addon.bpy.context.scene.objects = objects
+    addon.bpy.context.scene.name = "TestScene"
+    addon.bpy.data.materials = [object(), object()]
+    addon.bpy.app.version = (5, 1, 1)
+    addon.bpy.app.version_string = "5.1.1 Release"
+
+    server = addon.BlenderMCPServer.__new__(addon.BlenderMCPServer)
+    short = server.get_scene_info(full=False)
+    assert len(short["objects"]) == 10, "default cap should remain 10"
+    assert short["object_count"] == 30
+
+    full = server.get_scene_info(full=True)
+    assert len(full["objects"]) == 30, "full=True must return all 30"
+    assert full["object_count"] == 30
+    # Each entry has type + poly count + name (lighter than vertices/materials)
+    for o in full["objects"]:
+        assert "name" in o
+        assert "type" in o
+        assert "poly_count" in o

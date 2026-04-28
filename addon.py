@@ -589,11 +589,19 @@ class BlenderMCPServer:
 
 
 
-    def get_scene_info(self):
-        """Get information about the current Blender scene"""
+    def get_scene_info(self, full=False):
+        """Get information about the current Blender scene.
+
+        With full=False (default, BC-preserving), returns the first 10
+        objects with name+type+location only — the original light shape
+        designed to keep response size manageable.
+
+        With full=True, returns every object's name + type + poly count.
+        Use when you need an inventory for cleanup decisions; the size
+        is bounded by object_count, not by texture/material content.
+        """
         try:
-            print("Getting scene info...")
-            # Simplify the scene info to reduce data size
+            print(f"Getting scene info (full={full})...")
             scene_info = {
                 "name": bpy.context.scene.name,
                 "object_count": len(bpy.context.scene.objects),
@@ -606,22 +614,32 @@ class BlenderMCPServer:
                 "blender_version_string": bpy.app.version_string,
             }
 
-            # Collect minimal object information (limit to first 10 objects)
+            cap = None if full else 10
             for i, obj in enumerate(bpy.context.scene.objects):
-                if i >= 10:  # Reduced from 20 to 10
+                if cap is not None and i >= cap:
                     break
 
-                obj_info = {
-                    "name": obj.name,
-                    "type": obj.type,
-                    # Only include basic location data
-                    "location": [round(float(obj.location.x), 2),
-                                round(float(obj.location.y), 2),
-                                round(float(obj.location.z), 2)],
-                }
+                if full:
+                    polys = 0
+                    if obj.type == "MESH" and obj.data:
+                        polys = len(obj.data.polygons)
+                    obj_info = {
+                        "name": obj.name,
+                        "type": obj.type,
+                        "poly_count": polys,
+                    }
+                else:
+                    obj_info = {
+                        "name": obj.name,
+                        "type": obj.type,
+                        "location": [round(float(obj.location.x), 2),
+                                     round(float(obj.location.y), 2),
+                                     round(float(obj.location.z), 2)],
+                    }
                 scene_info["objects"].append(obj_info)
 
-            print(f"Scene info collected: {len(scene_info['objects'])} objects")
+            print(f"Scene info collected: {len(scene_info['objects'])} of "
+                  f"{scene_info['object_count']} objects")
             return scene_info
         except Exception as e:
             print(f"Error in get_scene_info: {str(e)}")

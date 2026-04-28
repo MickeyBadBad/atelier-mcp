@@ -277,17 +277,26 @@ def get_blender_connection():
 @mcp.tool()
 @telemetry_tool("get_scene_info")
 @tool_envelope
-def get_scene_info(ctx: Context) -> str:
-    """Get detailed information about the current Blender scene.
+def get_scene_info(ctx: Context, full: bool = False) -> str:
+    """Get information about the current Blender scene.
 
-    The response includes `blender_version` (e.g. [5, 1, 0]) and
-    `blender_version_string` (e.g. "5.1.0 Release"). Inspect these
-    before emitting code that touches version-sensitive surface:
-    shader/modifier enums, operator arguments, compositor node types,
-    and renamed APIs all drift between major versions.
+    Two modes:
+    - full=False (default): first 10 objects with name + type + location.
+      Designed to keep transport payload small — use when you just need
+      "what's the active scene named, what version of Blender".
+    - full=True: every object in the scene, each with name + type +
+      poly_count. Use this for cleanup decisions ("which 167 leftover
+      Test* objects can I delete?"). Larger payload but still bounded
+      by object_count, not by mesh detail.
+
+    Response includes Blender version (e.g. [5, 1, 0]) and version
+    string. Inspect these before emitting code that touches version-
+    sensitive surface (shader/modifier enums, operator arguments,
+    renamed APIs).
     """
     blender = get_blender_connection()
-    result = _check_addon_result(blender.send_command("get_scene_info"))
+    result = _check_addon_result(
+        blender.send_command("get_scene_info", {"full": full}))
     return result
 
 @mcp.tool()
