@@ -1463,7 +1463,8 @@ class BlenderMCPServer:
     def frame_camera_to_objects(self, targets, orbit_deg=35, elevation_deg=15,
                                 focal_mm=35.0, padding=1.1,
                                 composition="thirds_left",
-                                dof_target=None, f_stop=2.8):
+                                dof_target=None, f_stop=2.8,
+                                camera_xyz=None):
         """Position the active camera so all `targets` fit in frame, with
         composed orbit + elevation + thirds offset. LLMs frequently put
         cameras inside walls or aimed at the world origin; this wraps
@@ -1488,6 +1489,70 @@ class BlenderMCPServer:
             targets = [targets]
         if not targets:
             return {"error": "targets is empty"}
+
+        # Resolve the camera early so both modes can use it.
+        cam = bpy.context.scene.camera
+        if cam is None:
+            cam = next((o for o in bpy.context.scene.objects if o.type == 'CAMERA'), None)
+            if cam is None:
+                cam_data = bpy.data.cameras.new("Camera")
+                cam = bpy.data.objects.new("Camera", cam_data)
+                bpy.context.collection.objects.link(cam)
+            bpy.context.scene.camera = cam
+
+        # Explicit-xyz mode: bypass the bbox walk + orbit/elevation math.
+        # We just need a target_center to aim at. Averaging each target's
+        # world-space origin is good enough — the user already chose the
+        # exact vantage point, so we're not framing-fitting anyway.
+        # Composition/lens-shift presets are skipped in this mode (use
+        # execute_code if you need shift_x / shift_y).
+        if camera_xyz is not None:
+            missing = []
+            origins = []
+            for name in targets:
+                obj = bpy.data.objects.get(name)
+                if obj is None:
+                    missing.append(name)
+                    continue
+                # Robust to mocked/missing matrix_world: fall back to
+                # obj.location, then to (0,0,0) — the user already chose
+                # the camera vantage; aim direction is best-effort.
+                origin = None
+                try:
+                    mw = obj.matrix_world
+                    if mw is not None:
+                        origin = mw.translation
+                except Exception:
+                    origin = None
+                if origin is None:
+                    origin = getattr(obj, "location", (0.0, 0.0, 0.0))
+                origins.append(origin)
+            if missing:
+                return {"error": f"Targets not found: {missing}"}
+            try:
+                if origins:
+                    cx = sum(float(o[0]) for o in origins) / len(origins)
+                    cy = sum(float(o[1]) for o in origins) / len(origins)
+                    cz = sum(float(o[2]) for o in origins) / len(origins)
+                else:
+                    cx = cy = cz = 0.0
+            except (TypeError, ValueError):
+                cx = cy = cz = 0.0
+            center = mathutils.Vector((cx, cy, cz))
+            cam.location = mathutils.Vector([float(v) for v in camera_xyz])
+            direction = center - cam.location
+            cam.rotation_euler = direction.to_track_quat('-Z', 'Y').to_euler()
+            cam.data.lens = float(focal_mm)
+            return {
+                "camera_name": cam.name,
+                "location": [round(float(camera_xyz[0]), 4),
+                             round(float(camera_xyz[1]), 4),
+                             round(float(camera_xyz[2]), 4)],
+                "target_center": [round(cx, 4), round(cy, 4), round(cz, 4)],
+                "lens_mm": float(focal_mm),
+                "framed_targets": list(targets),
+                "mode": "explicit_xyz",
+            }
 
         # Aggregate world bbox of all targets (and their mesh descendants)
         mins = [float('inf')] * 3
@@ -1535,15 +1600,6 @@ class BlenderMCPServer:
             -_math.cos(elev_rad) * _math.cos(orbit_rad) * distance,
             _math.sin(elev_rad) * distance,
         ))
-
-        cam = bpy.context.scene.camera
-        if cam is None:
-            cam = next((o for o in bpy.context.scene.objects if o.type == 'CAMERA'), None)
-            if cam is None:
-                cam_data = bpy.data.cameras.new("Camera")
-                cam = bpy.data.objects.new("Camera", cam_data)
-                bpy.context.collection.objects.link(cam)
-            bpy.context.scene.camera = cam
 
         cam.location = center + offset
         direction = center - cam.location

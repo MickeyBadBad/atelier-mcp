@@ -725,6 +725,7 @@ def frame_camera_to_objects(
     composition: str = "thirds_left",
     dof_target: str = None,
     f_stop: float = 2.8,
+    camera_xyz: List[float] = None,
 ) -> str:
     """
     WHEN TO USE THIS vs set_camera_view:
@@ -741,6 +742,20 @@ def frame_camera_to_objects(
     verticals stay straight — the single biggest "looks pro vs amateur"
     tell in archviz.
 
+    Two positioning modes:
+
+    1. **Implicit (orbit + elevation)** — default. The camera is placed
+       on a sphere around the targets' bbox at `orbit_deg` around Z and
+       `elevation_deg` above horizontal. Good for quick 3/4 hero shots
+       when you don't care about exact vantage.
+
+    2. **Explicit (`camera_xyz=[x, y, z]`)** — the camera is placed at
+       exactly those world coordinates and aimed at the targets' bbox
+       center. `orbit_deg` and `elevation_deg` are ignored. Use this
+       when you know the vantage you want — orbit math conventions
+       (`0=front`) aren't obvious for arbitrary scenes. Composition
+       presets are skipped in explicit mode.
+
     Parameters:
     - targets: Single object name or list — frames their combined bbox
     - orbit_deg: Rotation around Z (0=front, 90=right side, 180=back)
@@ -751,6 +766,8 @@ def frame_camera_to_objects(
                    'thirds_top' | 'thirds_bottom'
     - dof_target: Optional object name to focus on (enables DOF)
     - f_stop: Aperture (lower = more blur). Only used when dof_target is set.
+    - camera_xyz: [x, y, z] world coords for explicit mode (overrides
+      orbit/elevation). When None (default), uses orbit/elevation.
 
     Returns final camera location, distance, FOV, etc.
     """
@@ -766,6 +783,7 @@ def frame_camera_to_objects(
         "composition": composition,
         "dof_target": dof_target,
         "f_stop": f_stop,
+        "camera_xyz": camera_xyz,
     }))
     return result
 

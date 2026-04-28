@@ -232,3 +232,49 @@ def test_apply_archviz_material_uv_scale_param_flows_to_handler(monkeypatch):
         object_name="Roof", genre="roof_clay_tiles")
     assert captured["uv_scale"] is not None
     assert captured["uv_scale"] != 4.0
+
+
+def test_frame_camera_camera_xyz_overrides_orbit(monkeypatch):
+    """When camera_xyz is provided, the resulting camera location must
+    equal that vector exactly — orbit_deg / elevation_deg are ignored."""
+    import sys, os
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    if "addon" in sys.modules:
+        del sys.modules["addon"]
+    import addon
+
+    class FakeVec:
+        def __init__(self, x=0, y=0, z=0):
+            self.x, self.y, self.z = x, y, z
+        def __getitem__(self, i):
+            return [self.x, self.y, self.z][i]
+        def __setitem__(self, i, v):
+            if i == 0: self.x = v
+            elif i == 1: self.y = v
+            elif i == 2: self.z = v
+
+    cam = type("Cam", (), {})()
+    cam.location = FakeVec()
+    cam.rotation_euler = FakeVec()
+    cam.data = type("CData", (), {"lens": 50, "sensor_width": 36})()
+    cam.name = "Camera"
+
+    def fake_get(name):
+        if name == "Camera":
+            return cam
+        m = type("M", (), {})()
+        m.matrix_world = None
+        m.bound_box = [(0, 0, 0)] * 8
+        m.type = "MESH"
+        m.data = type("D", (), {"polygons": []})()
+        m.children = []
+        return m
+    addon.bpy.data.objects.get = fake_get
+
+    server = addon.BlenderMCPServer.__new__(addon.BlenderMCPServer)
+    out = server.frame_camera_to_objects(
+        targets=["HouseBody"],
+        camera_xyz=[9.5, -8.5, 2.6],  # explicit, must be honored
+        focal_mm=35,
+    )
+    assert out["location"] == [9.5, -8.5, 2.6]
