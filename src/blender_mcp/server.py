@@ -838,6 +838,7 @@ def apply_archviz_material(
     custom_hex: str = None,
     roughness: float = 0.7,
     library: str = "auto",
+    uv_scale: float = None,
 ) -> str:
     """
     Apply a textured PBR material chosen by generic genre keyword.
@@ -864,6 +865,10 @@ def apply_archviz_material(
     - custom_hex: Required when genre='painted_wall' ('#RRGGBB')
     - roughness: Roughness for painted_wall (0..1)
     - library: 'auto' (default) | 'polyhaven'
+    - uv_scale: optional UV repeat multiplier (1.0-8.0 typical). When None,
+      uses the genre's default. Set to e.g. 4.0 when the default reads too
+      coarse on a small mesh ('roof_clay_tiles' on a 5m roof). Ignored for
+      painted_wall (no Mapping node).
     """
     blender = get_blender_connection()
     result = _check_addon_result(blender.send_command("apply_archviz_material", {
@@ -875,6 +880,7 @@ def apply_archviz_material(
         "custom_hex": custom_hex,
         "roughness": roughness,
         "library": library,
+        "uv_scale": uv_scale,
     }))
     return result
 

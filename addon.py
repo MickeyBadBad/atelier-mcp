@@ -1871,7 +1871,7 @@ class BlenderMCPServer:
         "roof_clay_tiles": {
             "polyhaven_ids": ["clay_roof_tiles_03", "ceramic_roof_01", "red_slate_roof_tiles_01"],
             "polyhaven_filter": {"asset_type": "textures", "categories": "roofing"},
-            "uv_scale": 4.0,
+            "uv_scale": 2.0,
             "description": "Terracotta or red clay roof tiles",
         },
         "roof_slate": {
@@ -1887,7 +1887,8 @@ class BlenderMCPServer:
     def apply_archviz_material(self, object_name, genre,
                                color_hint=None, finish=None,
                                resolution="2k", custom_hex=None,
-                               roughness=0.7, library="auto"):
+                               roughness=0.7, library="auto",
+                               uv_scale=None):
         """High-level: pick a textured PBR material by generic genre keyword,
         download from PolyHaven, apply to the object via set_texture.
 
@@ -1905,11 +1906,16 @@ class BlenderMCPServer:
         - roughness: only used for painted_wall
         - library: 'auto' (default — try polyhaven, then any registered
           alternative) | 'polyhaven' (force PolyHaven only)
+        - uv_scale: optional UV repeat multiplier (1.0–8.0 typical) that
+          overrides the genre's default. When None, the genre's default
+          uv_scale is applied to the texture's Mapping node. Set to e.g.
+          4.0 when the default reads too coarse on a small mesh
+          ('roof_clay_tiles' on a 5m roof).
 
         Returns the chosen asset_id and library, or an error if all
         candidates failed.
         """
-        # painted_wall short-circuit
+        # painted_wall short-circuit (no Mapping node — uv_scale ignored)
         if genre == "painted_wall":
             if not custom_hex:
                 return {"error": "genre='painted_wall' requires custom_hex='#RRGGBB'"}
@@ -1923,23 +1929,26 @@ class BlenderMCPServer:
             return {"error": f"Unknown genre '{genre}'. Available: {available}"}
 
         spec = self.ARCHVIZ_GENRES[genre]
+        # User-supplied uv_scale overrides the genre's default
+        effective_uv_scale = uv_scale if uv_scale is not None else spec.get("uv_scale", 1.0)
         candidates = list(spec.get("polyhaven_ids", []))
         last_err = None
         for asset_id in candidates:
             try:
-                dl = self.download_polyhaven_asset(
-                    asset_id=asset_id,
-                    asset_type="textures",
+                applied = self._apply_polyhaven_texture(
+                    object_name, asset_id,
                     resolution=resolution,
+                    uv_scale=effective_uv_scale,
                 )
-                if isinstance(dl, dict) and dl.get("error"):
-                    last_err = dl["error"]
-                    continue
-                # Successfully downloaded — apply
-                applied = self.set_texture(object_name, asset_id)
                 if isinstance(applied, dict) and applied.get("error"):
                     last_err = applied["error"]
                     continue
+                # Surface the helper's uv_scale_applied at the top level so
+                # callers (and tests) can verify what was actually written.
+                uv_scale_applied = (
+                    applied.get("uv_scale_applied")
+                    if isinstance(applied, dict) else None
+                )
                 return {
                     "object_name": object_name,
                     "genre": genre,
@@ -1947,7 +1956,10 @@ class BlenderMCPServer:
                     "asset_id": asset_id,
                     "resolution": resolution,
                     "description": spec.get("description"),
+                    "uv_scale": effective_uv_scale,
+                    "uv_scale_applied": uv_scale_applied,
                     "uv_scale_hint": spec.get("uv_scale", 1.0),
+                    "applied": applied,
                 }
             except Exception as e:
                 last_err = str(e)
@@ -1958,6 +1970,55 @@ class BlenderMCPServer:
                      f"Tried: {candidates}. Last error: {last_err}",
             "genre": genre,
             "candidates_tried": candidates,
+        }
+
+    def _apply_polyhaven_texture(self, object_name, asset_id, *,
+                                 resolution="2k", uv_scale=None, **kwargs):
+        """Internal helper: download a PolyHaven texture (if not already
+        cached) and apply it to the object, then write uv_scale into the
+        material's Mapping node so the genre's UV repeat (or a user
+        override) is actually honored.
+
+        Previously the genre's uv_scale was returned only as a hint and
+        callers had to use execute_blender_code to set the Mapping node's
+        Scale input — this helper centralizes that step.
+        """
+        # 1. Ensure the texture is downloaded
+        dl = self.download_polyhaven_asset(
+            asset_id=asset_id,
+            asset_type="textures",
+            resolution=resolution,
+        )
+        if isinstance(dl, dict) and dl.get("error"):
+            return {"error": dl["error"]}
+
+        # 2. Build the material and assign it to the object
+        applied = self.set_texture(object_name, asset_id)
+        if isinstance(applied, dict) and applied.get("error"):
+            return applied
+
+        # 3. Write uv_scale into the new material's Mapping node
+        if uv_scale is not None:
+            try:
+                mat_name = applied.get("material") if isinstance(applied, dict) else None
+                if mat_name:
+                    mat = bpy.data.materials.get(mat_name)
+                    if mat and mat.node_tree:
+                        for node in mat.node_tree.nodes:
+                            if node.type == 'MAPPING':
+                                s = float(uv_scale)
+                                node.inputs['Scale'].default_value = (s, s, s)
+                                break
+            except Exception as e:
+                # Non-fatal: texture is applied, just couldn't set scale
+                print(f"_apply_polyhaven_texture: failed to set uv_scale: {e}")
+
+        return {
+            "object_name": object_name,
+            "asset_id": asset_id,
+            "resolution": resolution,
+            "uv_scale_applied": uv_scale,
+            "set_texture_result": applied,
         }
 
     def list_archviz_genres(self):

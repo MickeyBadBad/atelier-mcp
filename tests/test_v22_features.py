@@ -182,3 +182,53 @@ def test_get_object_info_batch_returns_dict_keyed_by_name(monkeypatch):
     assert batch["objects"]["Cube"]["name"] == "Cube"
     assert batch["objects"]["Sphere"]["name"] == "Sphere"
     assert "error" in batch["objects"]["Missing"]
+
+
+def test_apply_archviz_material_uv_scale_param_flows_to_handler(monkeypatch):
+    """When the user passes uv_scale=4.0, the addon-side handler must
+    propagate it to the underlying texture applier (overriding the
+    genre's default). When uv_scale is None, the genre's default UV
+    scale is used."""
+    import sys, os
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    if "addon" in sys.modules:
+        del sys.modules["addon"]
+    import addon
+
+    captured = {}
+
+    def fake_polyhaven(self, object_name, asset_id, *,
+                      resolution="2k", uv_scale=None, **kwargs):
+        captured["object_name"] = object_name
+        captured["asset_id"] = asset_id
+        captured["uv_scale"] = uv_scale
+        return {"object_name": object_name, "asset_id": asset_id,
+                "uv_scale_applied": uv_scale}
+
+    # Patch the underlying texture applier — find the actual method name
+    # by inspecting BlenderMCPServer for any private method with
+    # "polyhaven" in its name. The convention is _apply_polyhaven_texture
+    # but if the codebase uses a different name, adapt accordingly.
+    candidate_names = [n for n in dir(addon.BlenderMCPServer)
+                       if "polyhaven" in n.lower() and "apply" in n.lower()
+                       and not n.startswith("__")]
+    assert candidate_names, "couldn't find a polyhaven applier — inspect addon.py"
+    applier_name = candidate_names[0]
+    monkeypatch.setattr(addon.BlenderMCPServer, applier_name, fake_polyhaven)
+
+    server = addon.BlenderMCPServer.__new__(addon.BlenderMCPServer)
+
+    # User-supplied uv_scale overrides the genre default
+    out = server.apply_archviz_material(
+        object_name="Roof", genre="roof_clay_tiles", uv_scale=4.0)
+    assert captured["uv_scale"] == 4.0
+    assert out.get("uv_scale_applied") == 4.0
+
+    # uv_scale=None falls through to the genre's default — non-None,
+    # specific to the genre. Verify it's not the user override (4.0)
+    # and it's a sensible numeric default.
+    captured.clear()
+    server.apply_archviz_material(
+        object_name="Roof", genre="roof_clay_tiles")
+    assert captured["uv_scale"] is not None
+    assert captured["uv_scale"] != 4.0
