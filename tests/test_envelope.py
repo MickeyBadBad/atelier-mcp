@@ -153,6 +153,80 @@ def test_check_addon_result_ignores_empty_error_field():
     assert out is result  # empty string is falsy
 
 
+# ----- NETWORK heuristic regression tests (v2.0.1 polish) -----
+# These cover transient upstream failures that should map to NETWORK
+# so LLM clients know to retry vs. ask the user to fix input.
+
+def test_check_addon_result_http_503_maps_to_network():
+    """HTTP 5xx from OpenAI-compat endpoint = transient upstream issue.
+
+    Surfaced during Sprint 5 Task 17 live verification: a Comfly call
+    for a model the user's plan didn't cover came back as
+    'OpenAI HTTP 503: ...' and was incorrectly classified INTERNAL.
+    """
+    with pytest.raises(ToolError) as exc_info:
+        _check_addon_result({"error": "OpenAI HTTP 503: {'error': {'message': 'upstream busy'}}"})
+    assert exc_info.value.code is ErrorCode.NETWORK
+
+
+def test_check_addon_result_http_502_maps_to_network():
+    with pytest.raises(ToolError) as exc_info:
+        _check_addon_result({"error": "OpenAI HTTP 502: bad gateway"})
+    assert exc_info.value.code is ErrorCode.NETWORK
+
+
+def test_check_addon_result_http_504_maps_to_network():
+    with pytest.raises(ToolError) as exc_info:
+        _check_addon_result({"error": "OpenAI HTTP 504: gateway timeout"})
+    assert exc_info.value.code is ErrorCode.NETWORK
+
+
+def test_check_addon_result_comfly_chinese_no_channel_maps_to_network():
+    """Comfly returns Chinese error '当前分组下对于模型 [...] 无可用渠道'
+    when the user's plan lacks a relay for the requested model alias.
+    Treat as NETWORK — retry/fallback semantics, not user-input error."""
+    with pytest.raises(ToolError) as exc_info:
+        _check_addon_result({"error": "OpenAI HTTP 503: {'error': {'message': '当前分组 [default] 下对于模型 [gemini-3.1-flash-image-preview-2k] 无可用渠道'}}"})
+    assert exc_info.value.code is ErrorCode.NETWORK
+
+
+def test_check_addon_result_socket_timeout_string_maps_to_network():
+    with pytest.raises(ToolError) as exc_info:
+        _check_addon_result({"error": "OpenAI request failed: HTTPSConnectionPool(host='api.openai.com', port=443): Read timed out."})
+    assert exc_info.value.code is ErrorCode.NETWORK
+
+
+def test_check_addon_result_unreachable_maps_to_network():
+    with pytest.raises(ToolError) as exc_info:
+        _check_addon_result({"error": "Sketchfab unreachable"})
+    assert exc_info.value.code is ErrorCode.NETWORK
+
+
+# ----- RATE_LIMITED heuristic -----
+
+def test_check_addon_result_429_maps_to_rate_limited():
+    with pytest.raises(ToolError) as exc_info:
+        _check_addon_result({"error": "Tripo3D HTTP 429: Too many requests"})
+    assert exc_info.value.code is ErrorCode.RATE_LIMITED
+
+
+def test_check_addon_result_quota_exceeded_maps_to_rate_limited():
+    with pytest.raises(ToolError) as exc_info:
+        _check_addon_result({"error": "Meshy: monthly quota exceeded the limit"})
+    assert exc_info.value.code is ErrorCode.RATE_LIMITED
+
+
+# ----- Confirm BAD_INPUT still wins over NETWORK when both signals
+# are present — keeps existing tests' semantics. -----
+
+def test_check_addon_result_unsupported_model_maps_to_bad_input():
+    """Even though the message contains 'unsupported', it's a user
+    input problem (wrong model name), not a transient network issue."""
+    with pytest.raises(ToolError) as exc_info:
+        _check_addon_result({"error": "Unsupported model 'foo-bar'. Use 'dall-e-3' or 'gpt-image-1'."})
+    assert exc_info.value.code is ErrorCode.BAD_INPUT
+
+
 def test_telemetry_default_is_opt_in():
     """In the v2 fork, telemetry_consent defaults to False (opt-in)."""
     import re

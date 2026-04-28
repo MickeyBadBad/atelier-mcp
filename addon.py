@@ -23,7 +23,7 @@ from contextlib import redirect_stdout, suppress
 bl_info = {
     "name": "Blender MCP",
     "author": "BlenderMCP",
-    "version": (2, 0, 0),
+    "version": (2, 0, 1),
     "blender": (3, 0, 0),
     "location": "View3D > Sidebar > BlenderMCP",
     "description": "Connect Blender to Claude via MCP",
@@ -3380,7 +3380,7 @@ class BlenderMCPServer:
         """
         report = {
             "blender_version": list(bpy.app.version),
-            "addon_version": "2.0.0+fork.1",
+            "addon_version": "2.0.1+fork.1",
             "services": {},
         }
 
@@ -6095,10 +6095,28 @@ def _persist_credentials(self, context):
         print(f"[blender-mcp] save_userpref failed (non-fatal): {e}")
 
 
+# Fields whose AddonPreferences schema default is a NON-empty string.
+# For these the "only restore if live is empty" guard would never fire —
+# the field always reads as truthy because of the default — so the
+# sidecar's previously-saved value (e.g. a Comfly base URL) would be
+# stuck behind the default after every addon reload. Sidecar wins
+# unconditionally for fields in this set.
+_SIDECAR_ALWAYS_RESTORE = frozenset({
+    "openai_base_url",   # default: "https://api.openai.com/v1"
+})
+
+
 def _load_credentials_from_sidecar():
     """Load credentials from ~/.blendermcp_credentials.json into the
     AddonPreferences instance. Called from register() so values come
-    back even if userpref.blend lost them between addon reloads."""
+    back even if userpref.blend lost them between addon reloads.
+
+    For password fields (default = ""), only fill in when live is empty
+    — that way the user's in-Blender edits beat a stale sidecar.
+    For fields with a non-empty schema default (see
+    _SIDECAR_ALWAYS_RESTORE), restore unconditionally — otherwise the
+    schema default would shadow the sidecar value forever.
+    """
     if not os.path.exists(_BLENDERMCP_CRED_SIDECAR):
         return
     try:
@@ -6110,11 +6128,17 @@ def _load_credentials_from_sidecar():
         prefs = addon.preferences
         if not prefs:
             return
+        restored = 0
         for k, v in data.items():
-            if v and not getattr(prefs, k, ""):
+            if not v:
+                continue
+            if k in _SIDECAR_ALWAYS_RESTORE:
                 setattr(prefs, k, v)
-        print(f"[blender-mcp] restored {sum(1 for v in data.values() if v)} "
-              f"credentials from sidecar")
+                restored += 1
+            elif not getattr(prefs, k, ""):
+                setattr(prefs, k, v)
+                restored += 1
+        print(f"[blender-mcp] restored {restored} credentials from sidecar")
     except Exception as e:
         print(f"[blender-mcp] credential sidecar restore failed: {e}")
 

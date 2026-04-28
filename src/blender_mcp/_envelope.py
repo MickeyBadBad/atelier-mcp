@@ -117,17 +117,44 @@ def _check_addon_result(result):
 
     Heuristics for ErrorCode classification (best-effort):
       - "first" / "before" / "load" / "configure" / "no key" / "not configured" → STATE_REQUIRED
-      - "required" / "must" / "invalid" / "bad" / "unknown" → BAD_INPUT
+      - "rate limit" / "too many requests" / "429" / "quota" / "exceeded" → RATE_LIMITED
+      - "http 5" / "502" / "503" / "504" / "timeout" / "unreachable" / "channel" / "无可用渠道" → NETWORK
+      - "required" / "must" / "invalid" / "bad" / "unknown" / "unsupported" → BAD_INPUT
       - else → INTERNAL
+
+    The NETWORK heuristic catches transient upstream failures that
+    deserve retry semantics: HTTP 5xx from the OpenAI-compatible
+    endpoint (Comfly's "无可用渠道" / "no available channel" lands
+    here too), socket timeouts surfaced as strings, and provider
+    errors that hint at the provider being briefly down. This lets
+    LLM clients distinguish "retry in a moment" from "you screwed up
+    the input."
     """
     if isinstance(result, dict) and result.get("error"):
         msg = str(result["error"])
         low = msg.lower()
         state_signals = ("first", "before", "load", "configure", "no key",
                          "no api key", "not configured", "not found")
-        input_signals = ("required", "must", "invalid", "bad", "unknown")
+        rate_signals = ("rate limit", "rate-limit", "too many requests",
+                        " 429", "http 429", "quota", "exceeded the limit",
+                        "credit balance")
+        # Match HTTP 5xx codes broadly. "http 5" catches "OpenAI HTTP 503"
+        # as emitted by addon.generate_image_openai. "channel" / "无可用渠道"
+        # cover Comfly's relay-not-configured response. "timeout" /
+        # "unreachable" / "connection refused" cover transport flakes.
+        network_signals = ("http 5", " 502", " 503", " 504",
+                           "http 502", "http 503", "http 504",
+                           "timeout", "timed out", "unreachable",
+                           "connection refused", "no available channel",
+                           "无可用渠道", "channel")
+        input_signals = ("required", "must", "invalid", "bad", "unknown",
+                         "unsupported")
         if any(x in low for x in state_signals):
             raise ToolError(ErrorCode.STATE_REQUIRED, hint=msg)
+        if any(x in low for x in rate_signals):
+            raise ToolError(ErrorCode.RATE_LIMITED, hint=msg)
+        if any(x in low for x in network_signals):
+            raise ToolError(ErrorCode.NETWORK, hint=msg)
         if any(x in low for x in input_signals):
             raise ToolError(ErrorCode.BAD_INPUT, hint=msg)
         raise ToolError(ErrorCode.INTERNAL, hint=msg)

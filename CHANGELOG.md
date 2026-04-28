@@ -6,6 +6,26 @@ This is an actively maintained community fork of [ahujasid/blender-mcp](https://
 
 ---
 
+## [2.0.1+fork.1] — 2026-04-28
+
+Polish-only follow-up to the v2.0 ship. No BC-break, no schema changes — pure bug fixes for two items called out in the Task 17 verification report.
+
+### Fixed
+- `_check_addon_result` heuristic now classifies upstream/transport failures correctly. Previously, every HTTP 5xx, timeout, or relay-not-configured error from the OpenAI-compatible endpoint fell through to `INTERNAL`. Now:
+  - `http 5` / `502` / `503` / `504` / `timeout` / `unreachable` / `connection refused` / `channel` / `无可用渠道` → `NETWORK` (LLM clients should retry)
+  - `429` / `rate limit` / `quota` / `exceeded` / `credit balance` → `RATE_LIMITED`
+  - `unsupported` joins the `BAD_INPUT` list (e.g. unknown model names)
+  - `STATE_REQUIRED` and `INTERNAL` fallback unchanged
+- Sidecar credential restore now correctly handles `openai_base_url`. The previous "only restore if live is empty" guard misfired for fields with non-empty schema defaults — `openai_base_url` always read truthy (`https://api.openai.com/v1`), so the saved Comfly URL was being shadowed by the default after every addon reload. New `_SIDECAR_ALWAYS_RESTORE` allowlist forces unconditional restore for those fields.
+
+### Added
+- `tests/test_sidecar_restore.py` — 7 tests covering the bug repro, restore-only-when-empty for password fields, unconditional restore for the allowlist, and edge cases (missing file, empty values, user-set value vs. sidecar value).
+- 8 new `_check_addon_result` heuristic tests covering NETWORK / RATE_LIMITED / BAD_INPUT classification with realistic upstream error strings (including Comfly's Chinese `无可用渠道`).
+
+49/49 tests passing.
+
+---
+
 ## [2.0.0+fork.1] — 2026-04-28
 
 **Breaking changes** — every `@mcp.tool()` now returns a canonical JSON envelope. Tool renames hard-applied without aliases. See **Breaking** below for the rename map; agent-side migration guide in [`AGENTS.md`](./AGENTS.md).
