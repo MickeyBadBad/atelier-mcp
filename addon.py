@@ -1096,6 +1096,12 @@ class BlenderMCPServer:
         obj.location.y += delta_y
         obj.location.z += delta_z
 
+        # Flush dependency graph so descendant matrix_world reflects the
+        # parent's new translation before we re-read the bbox. Without this,
+        # _world_bbox walks children whose matrix_world is stale-cached
+        # at the pre-shift location, and we report a wrong post-place bbox.
+        bpy.context.view_layer.update()
+
         # Re-evaluate bbox for the response
         new_min, new_max = self._world_bbox(obj)
         return {
