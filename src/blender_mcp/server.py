@@ -302,15 +302,35 @@ def get_scene_info(ctx: Context, full: bool = False) -> str:
 @mcp.tool()
 @telemetry_tool("get_object_info")
 @tool_envelope
-def get_object_info(ctx: Context, object_name: str) -> str:
-    """
-    Get detailed information about a specific object in the Blender scene.
+def get_object_info(
+    ctx: Context,
+    object_name: str = None,
+    names: list[str] = None,
+) -> str:
+    """Get info about one or many objects in the scene.
 
-    Parameters:
-    - object_name: The name of the object to get information about
+    - Pass `object_name="Cube"` to get a single object's info dict
+      (vertices, polys, materials, world location, bounding box).
+    - Pass `names=["Cube", "Sphere", ...]` to fetch multiple objects in
+      one call. Response shape: {"objects": {name: info_or_error}}.
+      Missing objects have `{"error": "..."}` in their slot — the call
+      doesn't fail just because one name is wrong.
+
+    Use the batch form whenever you'd otherwise loop multiple
+    `get_object_info` calls — fewer round trips, lower token cost.
     """
+    if object_name is None and not names:
+        raise ToolError(
+            ErrorCode.BAD_INPUT,
+            hint="Provide either `object_name` (str) or `names` (list[str])",
+        )
+    payload = {}
+    if object_name is not None:
+        payload["object_name"] = object_name
+    if names is not None:
+        payload["names"] = names
     blender = get_blender_connection()
-    result = _check_addon_result(blender.send_command("get_object_info", {"name": object_name}))
+    result = _check_addon_result(blender.send_command("get_object_info", payload))
     return result
 
 @mcp.tool()

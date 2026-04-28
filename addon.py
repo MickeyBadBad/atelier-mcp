@@ -668,7 +668,31 @@ class BlenderMCPServer:
 
 
 
-    def get_object_info(self, name):
+    def get_object_info(self, object_name=None, names=None):
+        """Return info about one object (legacy single-name form) OR a
+        batch keyed by name.
+
+        Pass `object_name="Cube"` for the original single-result behavior
+        (flat dict with name/type/location/materials/...).
+
+        Pass `names=["Cube", "Sphere"]` for a dict-of-results response:
+        `{"objects": {name: info_or_error}}`. Missing names get
+        `{"error": "..."}` in their slot — the call doesn't fail just
+        because one name is wrong.
+        """
+        if names is not None:
+            out = {}
+            for n in names:
+                try:
+                    out[n] = self._get_object_info_single(n)
+                except Exception as e:
+                    out[n] = {"error": str(e)}
+            return {"objects": out}
+        if object_name is not None:
+            return self._get_object_info_single(object_name)
+        return {"error": "Provide either `object_name` (str) or `names` (list[str])"}
+
+    def _get_object_info_single(self, name):
         """Get detailed information about a specific object"""
         obj = bpy.data.objects.get(name)
         if not obj:

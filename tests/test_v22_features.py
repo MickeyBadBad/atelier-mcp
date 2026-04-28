@@ -135,3 +135,50 @@ def test_get_scene_info_full_returns_all_objects(monkeypatch):
         assert "name" in o
         assert "type" in o
         assert "poly_count" in o
+
+
+def test_get_object_info_batch_returns_dict_keyed_by_name(monkeypatch):
+    """A list-of-names input returns a dict {name: info_or_error}.
+    Single-name input still returns a flat info dict (BC-preserving)."""
+    import sys, os
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    if "addon" in sys.modules:
+        del sys.modules["addon"]
+    import addon
+
+    class FakeObj:
+        def __init__(self, name):
+            self.name = name
+            self.type = "MESH"
+            class V:
+                x = y = z = 0.0
+            self.location = V()
+            self.rotation_euler = V()
+            self.scale = V()
+            self.scale.x = self.scale.y = self.scale.z = 1.0
+            self.visible_get = lambda: True
+            self.material_slots = []
+            self.bound_box = [(0, 0, 0)] * 8
+            self.data = type("Data", (), {
+                "vertices": [], "edges": [], "polygons": [],
+            })()
+            self.matrix_world = None
+
+    pool = {n: FakeObj(n) for n in ("Cube", "Sphere", "Light")}
+    addon.bpy.data.objects.get = lambda n: pool.get(n)
+
+    server = addon.BlenderMCPServer.__new__(addon.BlenderMCPServer)
+
+    # Single name (BC) — flat dict with "name" key
+    flat = server.get_object_info("Cube")
+    assert flat["name"] == "Cube"
+    assert "objects" not in flat
+
+    # Batch — dict keyed by name
+    batch = server.get_object_info(names=["Cube", "Sphere", "Missing"])
+    assert isinstance(batch, dict)
+    assert "objects" in batch
+    assert set(batch["objects"].keys()) == {"Cube", "Sphere", "Missing"}
+    assert batch["objects"]["Cube"]["name"] == "Cube"
+    assert batch["objects"]["Sphere"]["name"] == "Sphere"
+    assert "error" in batch["objects"]["Missing"]
