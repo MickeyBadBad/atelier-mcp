@@ -2173,40 +2173,97 @@ def _process_bbox(original_bbox: list[float] | list[int] | None) -> list[int] | 
 def generate_hyper3d_text_to_3d(
     ctx: Context,
     text_prompt: str,
-    bbox_condition: list[float]=None
+    bbox_condition: list[float] = None,
+    auto_import: bool = True,
+    import_name: str = "Hyper3DGenerated",
+    max_wait_seconds: int = 240,
+    poll_interval_seconds: float = 5.0,
 ) -> str:
     """
-    Generate a 3D asset via Hyper3D Rodin from a text prompt, import
-    into Blender. Free-trial key works for blockouts/prototyping; rate-
-    limits during peak hours surface as RATE_LIMITED ErrorCode.
+    Generate a 3D asset via Hyper3D Rodin from a text prompt.
+
+    Two flows:
+
+    1. **auto_import=True (default)** — sync: creates the task, polls
+       status until all entries are 'Done' (or timeout), then calls
+       import_hyper3d_asset transparently. Returns the import result.
+    2. **auto_import=False** — async: returns task_uuid +
+       subscription_key immediately. Caller drives
+       poll_hyper3d_job_status + import_hyper3d_asset manually. Use
+       when you want to fire-and-forget multiple jobs in parallel and
+       import them later.
+
+    Free-trial key works for blockouts/prototyping; rate-limits during
+    peak hours surface as RATE_LIMITED ErrorCode.
 
     **Prompt tips:** SHORT prompt-style English, ONE simple object.
-    Multi-object prompts produce mesh hybrids (worse than Tripo3D in
-    this regard). Hyper3D's output is often dense — run `mesh_cleanup`
-    after import. For higher fidelity prefer Tripo3D or Meshy. For the
-    full prompt cheat sheet, call `asset_query_help(service='hyper3d')`.
+    Multi-object prompts produce mesh hybrids. Hyper3D's output is
+    often dense — run `mesh_cleanup` after import. For higher fidelity
+    prefer Tripo3D or Meshy. For the full prompt cheat sheet, call
+    `asset_query_help(service='hyper3d')`.
 
     Parameters:
     - text_prompt: SHORT single-object English description
                    (e.g. "small brass cube, simple geometry").
-                   Multi-object prompts will fail.
     - bbox_condition: Optional [Length, Width, Height] ratio floats.
+    - auto_import: True (default) for sync poll+import. False for raw
+                   async return of task_uuid + subscription_key.
+    - import_name: Object name to assign on import (auto_import only).
+    - max_wait_seconds: Polling timeout (auto_import only).
+    - poll_interval_seconds: Wait between polls (auto_import only).
 
-    Returns a message indicating success or failure.
+    Returns the import result with object name + bbox + status (when
+    auto_import=True), or {task_uuid, subscription_key, auto_import:False}
+    (when auto_import=False).
     """
+    import time as _time
+
     blender = get_blender_connection()
-    result = _check_addon_result(blender.send_command("create_rodin_job", {
+    create = _check_addon_result(blender.send_command("create_rodin_job", {
         "text_prompt": text_prompt,
         "images": None,
         "bbox_condition": _process_bbox(bbox_condition),
     }))
-    succeed = result.get("submit_time", False)
-    if succeed:
+    if not create.get("submit_time"):
+        return create
+
+    task_uuid = create["uuid"]
+    sub_key = create["jobs"]["subscription_key"]
+
+    if not auto_import:
         return {
-            "task_uuid": result["uuid"],
-            "subscription_key": result["jobs"]["subscription_key"],
+            "task_uuid": task_uuid,
+            "subscription_key": sub_key,
+            "auto_import": False,
         }
-    return result
+
+    # Sync: poll until done, then import
+    deadline = _time.monotonic() + max_wait_seconds
+    last_status = None
+    while _time.monotonic() < deadline:
+        poll_result = blender.send_command("poll_hyper3d_job_status",
+                                           {"subscription_key": sub_key})
+        last_status = poll_result.get("status_list", [])
+        if last_status and all(s == "Done" for s in last_status):
+            break
+        if any(s == "Failed" for s in last_status):
+            raise ToolError(
+                ErrorCode.INTERNAL,
+                hint="Hyper3D job reported Failed status",
+                detail=f"status_list={last_status}",
+            )
+        _time.sleep(poll_interval_seconds)
+    else:
+        raise ToolError(
+            ErrorCode.NETWORK,
+            hint=f"Hyper3D polling timed out after {max_wait_seconds}s",
+            detail=f"last_status={last_status}",
+        )
+
+    return _check_addon_result(blender.send_command("import_hyper3d_asset", {
+        "name": import_name,
+        "task_uuid": task_uuid,
+    }))
 
 @mcp.tool()
 @telemetry_tool("generate_hyper3d_image_to_3d")

@@ -369,3 +369,49 @@ def test_apply_glass_material_routes_to_addon(monkeypatch):
     assert captured["params"]["transmission"] == 0.95
     assert captured["params"]["roughness"] == 0.05
     assert captured["params"]["ior"] == 1.45
+
+
+def test_hyper3d_auto_import_polls_until_done_then_imports(monkeypatch):
+    """When auto_import=True (default), the tool polls
+    poll_hyper3d_job_status until all status entries are 'Done', then
+    calls import_hyper3d_asset transparently. Returns the final import
+    result, not just the task UUID."""
+    import sys, os, time
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+    if "blender_mcp.server" in sys.modules:
+        del sys.modules["blender_mcp.server"]
+
+    poll_state = {"i": 0}
+    sequence = [
+        {"status_list": ["Generating", "Generating"]},
+        {"status_list": ["Done", "Generating"]},
+        {"status_list": ["Done", "Done"]},
+    ]
+
+    class FakeConn:
+        def send_command(self, cmd, params=None):
+            if cmd == "create_rodin_job":
+                return {"submit_time": "now", "uuid": "u-123",
+                        "jobs": {"subscription_key": "sk-fake"}}
+            if cmd == "poll_hyper3d_job_status":
+                out = sequence[poll_state["i"]]
+                poll_state["i"] = min(poll_state["i"] + 1, len(sequence) - 1)
+                return out
+            if cmd == "import_hyper3d_asset":
+                return {"succeed": True, "name": params["name"], "type": "MESH"}
+            return {"error": f"unexpected cmd {cmd}"}
+
+    from blender_mcp import server as srv_mod
+    srv_mod.get_blender_connection = lambda: FakeConn()
+    monkeypatch.setattr(time, "sleep", lambda s: None)  # don't actually wait
+
+    # Unwrap decorator stack to call the underlying function with kwargs
+    fn = srv_mod.generate_hyper3d_text_to_3d
+    while hasattr(fn, "__wrapped__"):
+        fn = fn.__wrapped__
+    out = fn(ctx=None, text_prompt="brass cube", auto_import=True,
+             import_name="Cube1", max_wait_seconds=10)
+    assert out["succeed"] is True
+    assert out["name"] == "Cube1"
+    assert poll_state["i"] >= 2  # polled at least twice
