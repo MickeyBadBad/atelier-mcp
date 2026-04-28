@@ -1368,14 +1368,14 @@ def generate_tripo3d_text_to_3d(
     into the scene. Returns task_id, imported object names, and download URL.
 
     **Prompt tips:** ONE object, not a scene. 'a chair' beats 'a chair
-    in a lounge'. Bake material + style into the prompt: 'vintage brass
-    door knocker, ornate, photorealistic'. Color-and-material specifics
-    win: 'walnut wood' beats 'brown wood'. For the full prompt cheat
-    sheet, call `asset_query_help(service='tripo3d')`.
+    in a lounge'. Bake material + style into the prompt: 'hand-thrown
+    ceramic vase, raku glaze, photorealistic'. Color-and-material
+    specifics win: 'walnut wood' beats 'brown wood'. For the full prompt
+    cheat sheet, call `asset_query_help(service='tripo3d')`.
 
     Parameters:
     - prompt: SINGLE-object English description with material + style
-              (e.g. "vintage brass speakeasy door knocker, ornate")
+              (e.g. "hand-thrown ceramic vase with raku glaze, ornate")
     - model_version: 'v3.1-20260211' (default, newest), 'v3.0-20250812',
                      'v2.5-20250123', 'P1-20260311' (low-poly tuned)
     - texture: include textures
@@ -2082,8 +2082,9 @@ def search_sketchfab_models(
     Search for models on Sketchfab.
 
     **Query tips:** short noun phrase, 2-4 words, English. Object-first:
-    'chesterfield sofa' beats 'a sofa made of leather'. Long sentences
-    return zero results. Skip brand names (they're copyright-cleansed).
+    'linen sectional sofa' beats 'a sofa made of fabric for living room'.
+    Long sentences return zero results. Skip brand names (they're
+    copyright-cleansed).
     `downloadable=True` is the default and drops ~70% of results — set
     False to widen the pool when zero hits, then check the `license`
     field manually before commercial use. For the full per-service

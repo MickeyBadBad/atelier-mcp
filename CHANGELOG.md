@@ -185,7 +185,7 @@ Important capability discovery — Codex CLI's `$imagegen` skill (model `gpt-ima
 
 ```bash
 codex exec --skip-git-repo-check --full-auto \
-  '$imagegen brass speakeasy door knocker, dark background, 1024x1024, save to /tmp/test.png'
+  '$imagegen hand-thrown ceramic vase with raku glaze, neutral background, 1024x1024, save to /tmp/test.png'
 ```
 
 → 1m27s, 43k tokens (ChatGPT quota), 1024×1024 PNG, gpt-image-2 quality. **Zero API charges.**
