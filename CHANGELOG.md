@@ -34,6 +34,7 @@ This is an actively maintained community fork of [ahujasid/blender-mcp](https://
 - `generate_3d_smart` no longer silently bails when picking Hyper3D / Hunyuan3D — actually invokes the underlying generation flow.
 - `generate_3d_smart` cost estimates calibrated to median observed cost (Tripo3D best 6 not 10, etc.).
 - State leakage: `set_world_hdri_rotation` without HDRI, `apply_archviz_material(genre='painted_wall')` without `custom_hex` etc. now raise `STATE_REQUIRED` instead of silent no-op or vague string error.
+- **Decorator order:** `@mcp.tool()` is now the outermost decorator across all 56 tools. Previously it was innermost, and FastMCP registered the bare function — silently bypassing both `@tool_envelope` (responses came back as naked dicts) and `@telemetry_tool` (telemetry never fired). New regression test `tests/test_decorator_order.py` guards the order. This is also why upstream's `DISABLE_TELEMETRY=true` env var has been a no-op since telemetry was introduced — the bug predates this fork.
 
 ### Documentation
 - `execute_blender_code` docstring rewritten to point to purpose-built tools first.
