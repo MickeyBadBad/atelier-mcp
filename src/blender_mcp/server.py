@@ -1887,6 +1887,31 @@ def asset_query_help(ctx: Context, service: str = "all") -> str:
 
 
 @mcp.tool()
+@tool_envelope
+def list_tools_by_phase(ctx: Context) -> str:
+    """Return the per-phase taxonomy of fork tools.
+
+    Use this for orientation when starting a new workflow. The phases
+    map to typical LLM workflow stages:
+
+    - discovery / diagnostics -> "what's in the scene + what works?"
+    - asset_search / asset_download / asset_generation -> "get content"
+    - material / geometry -> "build / tweak"
+    - camera / lighting -> "compose"
+    - render / export -> "ship"
+    - scene_management -> "cleanup, escape hatch"
+    - config -> "budget knobs"
+
+    Returns: {"phases": {phase_name: [tool_names]}, "total_tools": N}.
+    """
+    from ._phases import PHASES
+    return {
+        "phases": {p: list(t) for p, t in PHASES.items()},
+        "total_tools": sum(len(t) for t in PHASES.values()),
+    }
+
+
+@mcp.tool()
 @telemetry_tool("get_polyhaven_categories")
 @tool_envelope
 def get_polyhaven_categories(ctx: Context, asset_type: str = "hdris") -> str:
