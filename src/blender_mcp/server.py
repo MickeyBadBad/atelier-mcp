@@ -2460,7 +2460,7 @@ def lock_moodboard(
     from pathlib import Path
 
     from ._project import ProjectError, read_taste_profile, write_taste_profile
-    from ._snapshots import SnapshotError, version_snapshot
+    from ._snapshots import SnapshotError, snapshot_create
     from ._style_vocab import StyleVocabError, parse_style_chapter
 
     proj_path = Path(project_root)
@@ -2518,13 +2518,18 @@ def lock_moodboard(
 
     # Snapshot BEFORE writing so we can roll back
     try:
-        snapshot = version_snapshot(
+        files_to_snap = [profile_path]
+        for f in ("project.json", "procurement.json"):
+            p = proj_path / f
+            if p.is_file():
+                files_to_snap.append(p)
+        snapshot = snapshot_create(
             proj_path,
             label=f"2.5-moodboard-{style_slug}",
-            extra_files=[],
+            files=files_to_snap,
         )
-        snapshot_id = snapshot.get("snapshot_id", "")
-    except SnapshotError as e:
+        snapshot_id = snapshot.get("label", f"2.5-moodboard-{style_slug}")
+    except (SnapshotError, FileNotFoundError, OSError) as e:
         # Snapshot failure shouldn't block the lock; surface to caller.
         snapshot_id = f"snapshot-failed: {e}"
 
@@ -2887,6 +2892,168 @@ def generate_bom(
         "summary": summary,
         "content": content,
         "written_to": written_to,
+    })
+
+
+@mcp.tool()
+@telemetry_tool("audit_interior_quality_native")
+@tool_envelope
+def audit_interior_quality_native(
+    ctx: Context,
+    mode: str = "hero",
+    project_root: str = "",
+) -> str:
+    """
+    One-shot audit: scan the live Blender scene and run quality gates.
+
+    Equivalent to `audit_interior_quality(scene_info=...)` but the
+    scene state is gathered via the addon's native `interior_audit_scan`
+    command — saves the AI from making a separate `get_scene_info` call
+    + threading the result back. Use this whenever you want to audit
+    the *current* scene state.
+
+    Parameters:
+    - mode: 'exploration' | 'hero' | 'construction' (default 'hero')
+    - project_root: optional path; if given, taste-profile + project.json
+                    inform kelvin/project-type-aware gates
+
+    Returns: same shape as audit_interior_quality.
+    """
+    from pathlib import Path
+
+    from ._gates import StrictnessMode, run_audit
+    from ._project import ProjectError, read_taste_profile
+
+    try:
+        m = StrictnessMode(mode.lower())
+    except ValueError as e:
+        raise ToolError(
+            code=ErrorCode.BAD_INPUT,
+            hint="mode must be one of: exploration / hero / construction",
+            detail=str(e),
+        ) from e
+
+    blender = get_blender_connection()
+    response = blender.send_command("interior_audit_scan", {})
+    if isinstance(response, dict) and response.get("error"):
+        raise ToolError(
+            code=ErrorCode.INTERNAL,
+            hint="interior_audit_scan failed inside the addon",
+            detail=str(response["error"]),
+        )
+    if isinstance(response, dict) and "result" in response:
+        scene_info = response["result"]
+    else:
+        scene_info = response
+
+    project_meta = None
+    if project_root:
+        try:
+            profile = read_taste_profile(
+                Path(project_root) / "taste-profile.json"
+            )
+            project_json = Path(project_root) / "project.json"
+            if project_json.is_file():
+                import json as _json
+                project_meta = _json.loads(
+                    project_json.read_text(encoding="utf-8")
+                )
+            else:
+                project_meta = profile
+        except ProjectError:
+            project_meta = None
+
+    report = run_audit(scene_info, mode=m, project=project_meta)
+    findings_out = [
+        {
+            "gate": f.gate,
+            "severity": f.severity.value,
+            "message": f.message,
+            "citation": f.citation,
+            "suggested_fix": f.suggested_fix,
+        }
+        for f in report.findings
+    ]
+    return _tool_response({
+        "mode": mode,
+        "status": report.status,
+        "findings": findings_out,
+        "scene_info": scene_info,  # echo back for debugging
+    })
+
+
+@mcp.tool()
+@telemetry_tool("create_interior_project_native")
+@tool_envelope
+def create_interior_project_native(
+    ctx: Context,
+    project_name: str,
+    project_type: str,
+    spaces: list,
+    project_root: str = "",
+    units: str = "metric",
+) -> str:
+    """
+    One-shot project scaffold: write project metadata to disk AND
+    create the standard 11 collections + per-space sub-collections
+    inside the live Blender scene via the addon's native
+    `interior_project_scaffold` command.
+
+    Composes the existing `create_interior_project` (filesystem) with
+    the new addon command (Blender state). Use when starting a new
+    project from scratch with a live Blender connection.
+
+    Parameters: same as create_interior_project + the addon will
+    sync the collections into Blender.
+
+    Returns: filesystem result + addon scaffolding result.
+    """
+    from pathlib import Path
+
+    from ._project import (
+        ProjectError, STANDARD_COLLECTIONS, new_project_record, write_project,
+    )
+
+    if not project_root:
+        project_root = str(Path.cwd() / project_name)
+
+    proj_path = Path(project_root)
+    proj_path.mkdir(parents=True, exist_ok=True)
+
+    try:
+        record = new_project_record(
+            project_name=project_name,
+            project_type=project_type,
+            spaces=spaces,
+            units=units,
+        )
+        write_project(proj_path / "project.json", record)
+    except ProjectError as e:
+        raise ToolError(
+            code=ErrorCode.BAD_INPUT,
+            hint="project_type must be one of the canonical types",
+            detail=str(e),
+        ) from e
+
+    blender = get_blender_connection()
+    addon_response = blender.send_command(
+        "interior_project_scaffold",
+        {
+            "project_name": project_name,
+            "spaces": spaces,
+            "units": units,
+        },
+    )
+    if isinstance(addon_response, dict) and "result" in addon_response:
+        addon_result = addon_response["result"]
+    else:
+        addon_result = addon_response
+
+    return _tool_response({
+        "project_root": str(proj_path.resolve()),
+        "project_record": record,
+        "standard_collections": list(STANDARD_COLLECTIONS),
+        "addon_scaffold": addon_result,
     })
 
 

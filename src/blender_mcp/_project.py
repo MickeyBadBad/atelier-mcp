@@ -41,6 +41,29 @@ STANDARD_COLLECTIONS = (
 )
 
 
+def write_project(path: Path, record: Dict[str, Any]) -> None:
+    """Write a project record to a JSON file (utf-8, indent=2)."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(
+        json.dumps(record, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    tmp.replace(path)
+
+
+def read_project(path: Path) -> Dict[str, Any]:
+    """Read a project record from JSON; raise ProjectError on failure."""
+    path = Path(path)
+    if not path.is_file():
+        raise ProjectError(f"project file not found: {path}")
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as e:
+        raise ProjectError(f"corrupt project json: {e}") from e
+
+
 def new_project_record(
     project_name: str,
     project_type: str,

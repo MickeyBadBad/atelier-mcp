@@ -509,6 +509,9 @@ class BlenderMCPServer:
             "setup_lighting": self.setup_lighting,
             "apply_archviz_material": self.apply_archviz_material,
             "list_archviz_genres": self.list_archviz_genres,
+            # Interior Design Workflow native commands (Slice 8)
+            "interior_audit_scan": self.interior_audit_scan,
+            "interior_project_scaffold": self.interior_project_scaffold,
             "get_ambientcg_status": self.get_ambientcg_status,
             "search_ambientcg_assets": self.search_ambientcg_assets,
             "download_ambientcg_asset": self.download_ambientcg_asset,
@@ -2263,6 +2266,263 @@ class BlenderMCPServer:
                 "requires": "custom_hex='#RRGGBB'",
             },
         }
+
+    # ------------------------------------------------------------------
+    # Interior Design Workflow — native scene scan + project scaffolding
+    # (Slice 8 of the Interior Design Workflow design spec)
+    # ------------------------------------------------------------------
+
+    def interior_audit_scan(self):
+        """Walk the scene and emit an audit-shaped scene_info dict the MCP-
+        side `_gates.run_audit` consumer expects. Object-level signals are
+        derived from material slots, light data, camera data, and render
+        settings — nothing about audit policy lives here.
+
+        Returns:
+            {
+                "objects": [{name, type, has_albedo_map, has_roughness_map,
+                             is_prop, category, height_m, area_m2}],
+                "lights":  [{name, layer, kelvin, energy}],
+                "cameras": [{name, focal_mm, height_m, near_clip, sensor_mm}],
+                "render":  {view_transform, samples, engine},
+                "scene":   {floor_area_m2, unit_scale, units}
+            }
+        """
+        try:
+            scene = bpy.context.scene
+            render = scene.render
+            view_settings = scene.view_settings
+
+            # ---- Objects ----
+            objects = []
+            total_floor_area = 0.0
+            for obj in scene.objects:
+                obj_dict = {
+                    "name": obj.name,
+                    "type": obj.type,
+                    "has_albedo_map": False,
+                    "has_roughness_map": False,
+                    "is_prop": False,
+                    "category": "",
+                    "height_m": 0.0,
+                    "area_m2": 0.0,
+                }
+
+                if obj.type == "MESH" and obj.data:
+                    # Bounding box → height + footprint
+                    try:
+                        local_corners = [
+                            mathutils.Vector(c) for c in obj.bound_box
+                        ]
+                        world_corners = [
+                            obj.matrix_world @ c for c in local_corners
+                        ]
+                        zs = [c.z for c in world_corners]
+                        xs = [c.x for c in world_corners]
+                        ys = [c.y for c in world_corners]
+                        obj_dict["height_m"] = round(
+                            max(zs) - min(zs), 3,
+                        )
+                        obj_dict["area_m2"] = round(
+                            (max(xs) - min(xs)) * (max(ys) - min(ys)), 3,
+                        )
+                    except Exception:
+                        pass
+
+                    # Material slots — check for albedo / roughness texture nodes
+                    for slot in obj.material_slots:
+                        mat = slot.material
+                        if not mat or not mat.use_nodes:
+                            continue
+                        for node in mat.node_tree.nodes:
+                            if node.type == "TEX_IMAGE":
+                                # Heuristic: linked to base color → albedo;
+                                # linked to roughness → roughness map
+                                for out in node.outputs:
+                                    for link in out.links:
+                                        sock_name = link.to_socket.name.lower()
+                                        if "color" in sock_name or "albedo" in sock_name:
+                                            obj_dict["has_albedo_map"] = True
+                                        if "rough" in sock_name:
+                                            obj_dict["has_roughness_map"] = True
+
+                    # is_prop heuristic: small object below ~1m^3 in a non-shell
+                    # collection. Conservative — defaults to False.
+                    bbox_volume = (
+                        obj_dict["area_m2"] * obj_dict["height_m"]
+                        if obj_dict["area_m2"] and obj_dict["height_m"]
+                        else 0
+                    )
+                    if 0 < bbox_volume < 1.5:
+                        obj_dict["is_prop"] = True
+                        obj_dict["category"] = "prop"
+
+                    # Floor-area accumulator (only top-level meshes whose name
+                    # suggests floor / shell / room)
+                    nm = obj.name.lower()
+                    if any(k in nm for k in ("floor", "ground", "slab")):
+                        total_floor_area += obj_dict["area_m2"]
+
+                objects.append(obj_dict)
+
+            # ---- Lights ----
+            lights = []
+            for obj in scene.objects:
+                if obj.type != "LIGHT" or not obj.data:
+                    continue
+                light = obj.data
+                # Read Kelvin from blackbody node if present, else from
+                # custom property "kelvin" if author set it.
+                kelvin = 0
+                if hasattr(light, "node_tree") and light.use_nodes and light.node_tree:
+                    for node in light.node_tree.nodes:
+                        if node.type == "BLACKBODY":
+                            try:
+                                kelvin = int(
+                                    node.inputs["Temperature"].default_value
+                                )
+                                break
+                            except Exception:
+                                pass
+                if not kelvin and "kelvin" in obj:
+                    try:
+                        kelvin = int(obj["kelvin"])
+                    except Exception:
+                        pass
+                # Layer custom property: "ambient" | "accent" | "task" | "decorative"
+                layer = obj.get("layer", "")
+                lights.append({
+                    "name": obj.name,
+                    "layer": layer,
+                    "kelvin": kelvin,
+                    "energy": float(getattr(light, "energy", 0.0)),
+                    "type": light.type,
+                })
+
+            # ---- Cameras ----
+            cameras = []
+            for obj in scene.objects:
+                if obj.type != "CAMERA" or not obj.data:
+                    continue
+                cam = obj.data
+                cameras.append({
+                    "name": obj.name,
+                    "focal_mm": float(cam.lens),
+                    "sensor_mm": float(cam.sensor_width),
+                    "near_clip": float(cam.clip_start),
+                    "height_m": round(float(obj.matrix_world.translation.z), 3),
+                    "is_active": (scene.camera == obj),
+                })
+
+            # ---- Render settings ----
+            try:
+                samples = scene.cycles.samples
+            except Exception:
+                samples = scene.eevee.taa_render_samples if hasattr(
+                    scene, "eevee",
+                ) else 0
+            render_info = {
+                "engine": render.engine,
+                "samples": int(samples or 0),
+                "view_transform": view_settings.view_transform,
+                "look": view_settings.look,
+            }
+
+            # ---- Scene-level ----
+            scene_info_block = {
+                "floor_area_m2": round(total_floor_area, 3),
+                "unit_scale": float(scene.unit_settings.scale_length),
+                "units": scene.unit_settings.system,
+            }
+
+            return {
+                "objects": objects,
+                "lights": lights,
+                "cameras": cameras,
+                "render": render_info,
+                "scene": scene_info_block,
+            }
+        except Exception as e:
+            print(f"interior_audit_scan error: {e}")
+            traceback.print_exc()
+            return {"error": str(e)}
+
+    def interior_project_scaffold(self, project_name=None, spaces=None,
+                                  units="metric"):
+        """Create the standard 11 top-level collections + per-space sub-
+        collections under 03_ZONES. Sets scene unit system to metric meters.
+
+        Idempotent — existing collections are reused.
+
+        Returns: {created_collections, reused_collections,
+                  scene_unit_settings, project_name}
+        """
+        try:
+            scene = bpy.context.scene
+            standard_collections = [
+                "00_REFERENCES", "01_PLAN", "02_SHELL", "03_ZONES",
+                "04_FINISHES", "05_FIXTURES", "06_LIGHTING",
+                "07_CAMERAS", "08_RENDER_OUT", "09_EXPORT", "90_VARIANTS",
+            ]
+            spaces = spaces or []
+            created = []
+            reused = []
+
+            # Scene units
+            if units == "metric":
+                scene.unit_settings.system = "METRIC"
+                scene.unit_settings.length_unit = "METERS"
+                scene.unit_settings.scale_length = 1.0
+
+            root = scene.collection
+            existing_names = {c.name for c in bpy.data.collections}
+
+            def _ensure(name, parent_collection):
+                if name in existing_names:
+                    coll = bpy.data.collections[name]
+                    reused.append(name)
+                else:
+                    coll = bpy.data.collections.new(name)
+                    created.append(name)
+                    existing_names.add(name)
+                # Link if not already linked under parent
+                if coll.name not in [c.name for c in parent_collection.children]:
+                    try:
+                        parent_collection.children.link(coll)
+                    except Exception:
+                        pass
+                return coll
+
+            top_collections = {}
+            for name in standard_collections:
+                top_collections[name] = _ensure(name, root)
+
+            # Per-space sub-collections under 03_ZONES
+            zones_root = top_collections["03_ZONES"]
+            for space in spaces:
+                slug = "".join(
+                    c if c.isalnum() or c in "_-" else "_" for c in str(space)
+                ).strip("_") or "Zone"
+                _ensure(slug, zones_root)
+
+            # Project name as scene custom property
+            if project_name:
+                scene["interior_project_name"] = str(project_name)
+
+            return {
+                "created_collections": created,
+                "reused_collections": reused,
+                "scene_unit_settings": {
+                    "system": scene.unit_settings.system,
+                    "length_unit": scene.unit_settings.length_unit,
+                    "scale_length": scene.unit_settings.scale_length,
+                },
+                "project_name": project_name or "",
+            }
+        except Exception as e:
+            print(f"interior_project_scaffold error: {e}")
+            traceback.print_exc()
+            return {"error": str(e)}
 
     # ------------------------------------------------------------------
     # ambientCG integration — CC0 PBR textures (~2000+ materials)
