@@ -1970,6 +1970,647 @@ def read_design_handbook(
 
 
 @mcp.tool()
+@telemetry_tool("run_discovery_questionnaire")
+@tool_envelope
+def run_discovery_questionnaire(
+    ctx: Context,
+    depth: str = "deep",
+    batch_size: int = 4,
+) -> str:
+    """
+    Start a Discovery questionnaire session per docs/handbook/discovery.md.
+
+    The Discovery flow extracts user taste preferences via 5 question
+    types (direct / projective / metaphor / sensory / paired-A/B). Use
+    this at the start of any new project, or whenever the user wants
+    to refresh their taste profile.
+
+    Parameters:
+    - depth: 'quick' (5-7 q) | 'standard' (12-15 q) | 'deep' (25-30 q)
+             | 'adaptive' (default 'deep')
+    - batch_size: number of questions per call (default 4). Use a small
+                  batch to avoid overwhelming the user; call repeatedly
+                  with submit_questionnaire_answers in between.
+
+    Returns: {session_id, depth, total_questions, batch, next_index}
+    """
+    from ._discovery import Depth, DiscoveryError, new_session
+
+    try:
+        d = Depth(depth.lower())
+    except ValueError as e:
+        raise ToolError(
+            code=ErrorCode.BAD_INPUT,
+            hint="depth must be one of: quick / standard / deep / adaptive",
+            detail=str(e),
+        ) from e
+    try:
+        session = new_session(depth=d, batch_size=batch_size)
+    except DiscoveryError as e:
+        raise ToolError(
+            code=ErrorCode.INTERNAL,
+            hint="discovery_bank.yaml may be missing or malformed",
+            detail=str(e),
+        ) from e
+    return _tool_response(session)
+
+
+@mcp.tool()
+@telemetry_tool("submit_questionnaire_answers")
+@tool_envelope
+def submit_questionnaire_answers(
+    ctx: Context,
+    answers: dict,
+    return_inferred: bool = True,
+) -> str:
+    """
+    Validate + score discovery answers. Returns a partial / full taste
+    profile. Per discovery.md, the AI should call this at the midpoint
+    (around question 12) with `return_inferred=True` to surface a
+    style hypothesis to the user before continuing.
+
+    Parameters:
+    - answers: dict mapping question_id → choice_value (str), list, or
+               free-text string. Use validate-friendly shapes from
+               run_discovery_questionnaire's batch.
+    - return_inferred: if True (default), include the mid-questionnaire
+                       top-style hypothesis in the response.
+
+    Returns:
+      {profile: {feeling_anchors, style_axes, material_pull,
+                 style_match, recommended_style, free_text_notes},
+       inferred?: {top_styles, needs_more_questions, current_axes}}
+    """
+    from ._discovery import (
+        DiscoveryError,
+        midpoint_inferred_style,
+        score_answers,
+        validate_answer_payload,
+    )
+
+    try:
+        normalized = validate_answer_payload(answers)
+    except DiscoveryError as e:
+        raise ToolError(
+            code=ErrorCode.BAD_INPUT,
+            hint="check question id and choice value spelling",
+            detail=str(e),
+        ) from e
+    profile = score_answers(normalized)
+    out: dict = {"profile": profile}
+    if return_inferred:
+        out["inferred"] = midpoint_inferred_style(normalized)
+    return _tool_response(out)
+
+
+@mcp.tool()
+@telemetry_tool("read_taste_profile_tool")
+@tool_envelope
+def read_taste_profile_tool(
+    ctx: Context,
+    project_root: str,
+) -> str:
+    """Return the project's current taste-profile.json content.
+
+    Parameters:
+    - project_root: absolute path to the project directory containing
+                    taste-profile.json.
+
+    Returns: {profile: {...full taste profile fields...}}
+    """
+    from pathlib import Path
+
+    from ._project import ProjectError, read_taste_profile
+
+    try:
+        profile = read_taste_profile(
+            Path(project_root) / "taste-profile.json"
+        )
+    except ProjectError as e:
+        raise ToolError(
+            code=ErrorCode.NOT_FOUND,
+            hint="run_discovery_questionnaire first to generate a profile",
+            detail=str(e),
+        ) from e
+    return _tool_response({"profile": profile})
+
+
+@mcp.tool()
+@telemetry_tool("update_taste_profile_tool")
+@tool_envelope
+def update_taste_profile_tool(
+    ctx: Context,
+    project_root: str,
+    updates: dict,
+) -> str:
+    """Merge updates into the project's taste-profile.json.
+
+    Used by `interior-style-locking` skill to write `locked_style`,
+    `locked_palette`, `locked_material_vocab`, `locked_anchor_images`
+    after the user picks a moodboard.
+
+    Parameters:
+    - project_root: absolute path to the project directory.
+    - updates: dict of fields to merge (replaces existing keys).
+
+    Returns: {profile: {...merged profile...}}
+    """
+    from pathlib import Path
+
+    from ._project import ProjectError, update_taste_profile
+
+    try:
+        merged = update_taste_profile(
+            Path(project_root) / "taste-profile.json",
+            updates,
+        )
+    except ProjectError as e:
+        raise ToolError(
+            code=ErrorCode.INTERNAL,
+            hint="check filesystem permissions on project_root",
+            detail=str(e),
+        ) from e
+    return _tool_response({"profile": merged})
+
+
+@mcp.tool()
+@telemetry_tool("create_interior_project")
+@tool_envelope
+def create_interior_project(
+    ctx: Context,
+    project_name: str,
+    project_type: str,
+    spaces: list,
+    project_root: str,
+    units: str = "metric",
+) -> str:
+    """
+    Create the project scaffold — directory layout, project.json,
+    taste-profile.json (empty), and standard Blender collection names.
+
+    Parameters:
+    - project_name: display name.
+    - project_type: per docs/handbook/project-types.md
+                    (residential_apartment / residential_house /
+                    cafe_lounge / restaurant_full_service /
+                    retail_boutique / office_small).
+    - spaces: list[str] of space names (e.g. ['living', 'bedroom']).
+    - project_root: absolute path; will be created if missing.
+    - units: 'metric' (default).
+
+    Note: Blender collection creation itself is delegated to the addon
+    via execute_blender_code in this slice. This tool writes project
+    metadata + scaffold dirs and returns the canonical collection list
+    for the AI to apply Blender-side.
+    """
+    import json as _json
+    from pathlib import Path
+
+    from ._project import (
+        ProjectError, new_project_record, write_taste_profile,
+    )
+
+    try:
+        rec = new_project_record(
+            project_name=project_name,
+            project_type=project_type,
+            spaces=spaces,
+            units=units,
+        )
+    except ProjectError as e:
+        raise ToolError(
+            code=ErrorCode.BAD_INPUT,
+            hint=("valid project types: residential_apartment, "
+                  "residential_house, cafe_lounge, "
+                  "restaurant_full_service, retail_boutique, office_small"),
+            detail=str(e),
+        ) from e
+
+    root = Path(project_root)
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "project.json").write_text(
+        _json.dumps(rec, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    profile_path = root / "taste-profile.json"
+    if not profile_path.exists():
+        write_taste_profile(
+            profile_path,
+            {"version": 1, "project": project_name},
+        )
+
+    for sub in (
+        "snapshots",
+        "exports/renders",
+        "exports/construction",
+    ):
+        (root / sub).mkdir(parents=True, exist_ok=True)
+
+    return _tool_response({
+        "project": rec,
+        "project_root": str(root.resolve()),
+        "files_created": ["project.json", "taste-profile.json"],
+        "directories_created": [
+            "snapshots/", "exports/renders/", "exports/construction/",
+        ],
+    })
+
+
+@mcp.tool()
+@telemetry_tool("version_snapshot")
+@tool_envelope
+def version_snapshot(
+    ctx: Context,
+    project_root: str,
+    label: str,
+    extra_files: list = None,
+) -> str:
+    """
+    Snapshot the project state. Always copies project.json,
+    taste-profile.json, version-log.json (if they exist), plus any
+    additional files in `extra_files`.
+
+    The medium snapshot frequency rule (per workflow spec § Interaction
+    Model) calls for snapshots at phase completion + when the user
+    says "looks good". The AI should also snapshot before any L3 / L4
+    loop transition.
+
+    Parameters:
+    - project_root: absolute path.
+    - label: short human label (e.g. 'phase-3-shell-complete' or
+             'pre-L4-style-pivot').
+    - extra_files: list[str] of additional absolute paths to include
+                   (typically the .blend file path).
+
+    Returns: {path, label, files}
+    """
+    from pathlib import Path
+
+    from ._snapshots import SnapshotError, snapshot_create
+
+    root = Path(project_root)
+    files_to_snapshot = []
+    for name in ("project.json", "taste-profile.json", "version-log.json"):
+        p = root / name
+        if p.is_file():
+            files_to_snapshot.append(p)
+    for extra in extra_files or []:
+        files_to_snapshot.append(Path(extra))
+
+    if not files_to_snapshot:
+        raise ToolError(
+            code=ErrorCode.STATE_REQUIRED,
+            hint=(
+                "No project files found to snapshot — run "
+                "create_interior_project first"
+            ),
+            detail=f"checked under {root}",
+        )
+    try:
+        snap = snapshot_create(
+            project_root=root, label=label, files=files_to_snapshot,
+        )
+    except SnapshotError as e:
+        raise ToolError(
+            code=ErrorCode.INTERNAL,
+            hint=(
+                "check filesystem permissions and that all extra_files "
+                "exist"
+            ),
+            detail=str(e),
+        ) from e
+    snap["path"] = str(snap["path"])
+    return _tool_response(snap)
+
+
+@mcp.tool()
+@telemetry_tool("version_log_entry")
+@tool_envelope
+def version_log_entry(
+    ctx: Context,
+    project_root: str,
+    level: str,
+    why: str,
+    snapshot_label: str = "",
+) -> str:
+    """
+    Append a loop-transition entry to version-log.json.
+
+    Per the workflow spec § Loop Architecture:
+    - L1 (tweak within Stage 5): silent, no log needed
+    - L2 (material/light swap): silent execute, log optional
+    - L3 (layout / Stage 3-4 change): MUST log + snapshot prior state
+    - L4 (style redo / Stage 2.5 pivot): MUST log + branch snapshot
+                                         + user confirmation
+
+    Parameters:
+    - project_root: absolute path.
+    - level: 'L1' | 'L2' | 'L3' | 'L4'.
+    - why: one-line reason ("user changed sofa layout from L-shape...").
+    - snapshot_label: label of the snapshot taken just before this
+                      transition (recommended for L3 / L4).
+    """
+    from pathlib import Path
+
+    from ._snapshots import LoopLevel, SnapshotError, version_log_append
+
+    try:
+        lvl = LoopLevel(level.upper())
+    except ValueError as e:
+        raise ToolError(
+            code=ErrorCode.BAD_INPUT,
+            hint="level must be one of L1 / L2 / L3 / L4",
+            detail=str(e),
+        ) from e
+    try:
+        version_log_append(
+            project_root=Path(project_root),
+            level=lvl,
+            why=why,
+            snapshot_label=snapshot_label,
+        )
+    except SnapshotError as e:
+        raise ToolError(
+            code=ErrorCode.INTERNAL,
+            hint="check filesystem permissions",
+            detail=str(e),
+        ) from e
+    return _tool_response({"appended": {"level": level, "why": why}})
+
+
+@mcp.tool()
+@telemetry_tool("record_sku_purchase")
+@tool_envelope
+def record_sku_purchase(
+    ctx: Context,
+    project_root: str,
+    record: dict,
+) -> str:
+    """
+    Record a SKU purchase (or planned purchase) in `procurement.json`.
+
+    The record must include: category, label, url, vendor, price_rmb.
+    Optional: quantity (default 1), lead_time_days, image_url, notes,
+    linked_object (Blender object name).
+
+    Categories: sofa | chair | table | rug | lamp | art | hardware |
+                finish | appliance | other
+    Vendors:    1688 | taobao | tmall | jd | xiaohongshu |
+                sketchfab | polyhaven | ambientcg | tripo3d |
+                ikea | muji | vipp | manufacturer | showroom | other
+
+    Returns: {sku_id} — id is auto-assigned if not provided.
+    """
+    from pathlib import Path
+
+    from ._procurement import ProcurementError, record_purchase
+
+    try:
+        sku_id = record_purchase(Path(project_root), record)
+    except ProcurementError as e:
+        raise ToolError(
+            code=ErrorCode.BAD_INPUT,
+            hint="check category + vendor + required fields (category, label, url, vendor, price_rmb)",
+            detail=str(e),
+        ) from e
+    return _tool_response({"sku_id": sku_id})
+
+
+@mcp.tool()
+@telemetry_tool("list_procurement")
+@tool_envelope
+def list_procurement(
+    ctx: Context,
+    project_root: str,
+) -> str:
+    """Return all procurement records for a project."""
+    from pathlib import Path
+
+    from ._procurement import list_purchases
+
+    items = list_purchases(Path(project_root))
+    return _tool_response({"items": items, "count": len(items)})
+
+
+@mcp.tool()
+@telemetry_tool("remove_sku_purchase")
+@tool_envelope
+def remove_sku_purchase(
+    ctx: Context,
+    project_root: str,
+    sku_id: str,
+) -> str:
+    """Remove the SKU with the given id from procurement.json."""
+    from pathlib import Path
+
+    from ._procurement import remove_purchase
+
+    removed = remove_purchase(Path(project_root), sku_id)
+    if not removed:
+        raise ToolError(
+            code=ErrorCode.NOT_FOUND,
+            hint="sku_id not present in procurement.json",
+            detail=f"sku_id='{sku_id}' not found under {project_root}",
+        )
+    return _tool_response({"removed": True, "sku_id": sku_id})
+
+
+@mcp.tool()
+@telemetry_tool("extract_sku_metadata")
+@tool_envelope
+def extract_sku_metadata(
+    ctx: Context,
+    url: str,
+    page_content: str,
+    category_hint: str = "other",
+) -> str:
+    """
+    Best-effort SKU metadata extraction from pasted page content.
+
+    The AI client should fetch the product page (via claude-in-chrome
+    or by asking the user to paste the page) and pass `page_content`
+    in. This tool parses out title, price (RMB), image URL, and
+    detects the vendor from the URL host.
+
+    Returns a draft procurement record. The AI should review the
+    fields and call `record_sku_purchase` with the corrected payload.
+
+    Parameters:
+    - url: the product page URL (used to detect vendor).
+    - page_content: pasted HTML or rendered text.
+    - category_hint: pre-classify if known (default 'other').
+
+    Returns: {draft: {category, label, url, vendor, price_rmb,
+                      quantity, image_url, notes}}
+    """
+    from ._sku_parse import parse_sku_metadata
+
+    draft = parse_sku_metadata(
+        url=url,
+        html_or_text=page_content,
+        category_hint=category_hint,
+    )
+    return _tool_response({"draft": draft})
+
+
+@mcp.tool()
+@telemetry_tool("generate_bom")
+@tool_envelope
+def generate_bom(
+    ctx: Context,
+    project_root: str,
+    output_format: str = "markdown",
+    write_to: str = "",
+) -> str:
+    """
+    Generate the Bill of Materials from procurement records + the
+    project's locked-material vocab in taste-profile.json.
+
+    Parameters:
+    - project_root: absolute path to the project directory.
+    - output_format: 'markdown' (default) | 'csv'
+    - write_to: optional absolute path; if given, the rendered output
+                is also written to this file.
+
+    Returns: {summary: {item_count, total_cost_rmb, max_lead_time_days,
+                        by_category}, content: <rendered string>,
+              written_to: <path or empty>}
+    """
+    from pathlib import Path
+
+    from ._bom import (
+        bom_summary, collect_bom_rows, render_bom_csv,
+        render_bom_markdown,
+    )
+
+    rows = collect_bom_rows(Path(project_root))
+    summary = bom_summary(rows)
+    fmt = (output_format or "markdown").lower()
+    if fmt == "csv":
+        content = render_bom_csv(rows)
+    elif fmt == "markdown":
+        content = render_bom_markdown(rows)
+    else:
+        raise ToolError(
+            code=ErrorCode.BAD_INPUT,
+            hint="output_format must be 'markdown' or 'csv'",
+            detail=f"got: {output_format!r}",
+        )
+
+    written_to = ""
+    if write_to:
+        out_path = Path(write_to)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(content, encoding="utf-8")
+        written_to = str(out_path.resolve())
+
+    return _tool_response({
+        "summary": summary,
+        "content": content,
+        "written_to": written_to,
+    })
+
+
+@mcp.tool()
+@telemetry_tool("audit_interior_quality")
+@tool_envelope
+def audit_interior_quality(
+    ctx: Context,
+    scene_info: dict,
+    mode: str = "hero",
+    project_root: str = "",
+) -> str:
+    """
+    Run the 9-dimension Interior Quality audit on a captured scene_info.
+
+    The AI client should first fetch scene state via
+    `get_scene_info(full=True)`, then pass the result here. Each gate
+    references its handbook chapter so the AI can explain failures to
+    the user with citations.
+
+    Strictness modes (per workflow spec § Quality Gates):
+    - 'exploration' (Stages 0-4, L1 loops): only HARD findings reported
+    - 'hero'        (Stage 5 final, Stage 6): all severities
+    - 'construction' (Stage 6.5 deliverables): all severities + texture
+                     packing upgraded to HARD
+
+    Parameters:
+    - scene_info: dict from get_scene_info(full=True). Required shape:
+        {objects: [{name, type, has_albedo_map, has_roughness_map,
+                    is_prop, category, height_m}],
+         lights: [{name, layer, kelvin}],
+         cameras: [{name, focal_mm, height_m, near_clip, inside_wall}],
+         view_transform: 'AgX' | 'Filmic' | 'Standard',
+         render_settings: {engine, cycles_samples, eevee_samples},
+         scene_meta: {floor_area_m2, pack_resources}}
+    - mode: 'exploration' | 'hero' | 'construction' (default 'hero')
+    - project_root: optional absolute path; if given, taste-profile.json
+                    is loaded so kelvin gate can apply project-type range
+
+    Returns:
+        {mode, status: 'pass' | 'warn' | 'fail',
+         findings: [{gate, severity, message, citation, suggested_fix}]}
+    """
+    from pathlib import Path
+
+    from ._gates import StrictnessMode, run_audit
+    from ._project import ProjectError, read_taste_profile
+
+    try:
+        m = StrictnessMode(mode.lower())
+    except ValueError as e:
+        raise ToolError(
+            code=ErrorCode.BAD_INPUT,
+            hint="mode must be one of: exploration / hero / construction",
+            detail=str(e),
+        ) from e
+
+    project_meta = None
+    if project_root:
+        try:
+            profile = read_taste_profile(
+                Path(project_root) / "taste-profile.json"
+            )
+            # Project type may live in project.json or be embedded in profile
+            project_json = Path(project_root) / "project.json"
+            if project_json.is_file():
+                import json as _json
+                project_meta = _json.loads(
+                    project_json.read_text(encoding="utf-8")
+                )
+            else:
+                project_meta = profile
+        except ProjectError:
+            # No profile — kelvin gate becomes a no-op, others still run
+            project_meta = None
+
+    report = run_audit(scene_info, mode=m, project=project_meta)
+
+    # Convert Finding namedtuples to plain dicts for JSON serialization
+    findings_out = [
+        {
+            "gate": f.gate,
+            "severity": f.severity.value,
+            "message": f.message,
+            "citation": f.citation,
+            "suggested_fix": f.suggested_fix,
+        }
+        for f in report["findings"]
+    ]
+    return _tool_response({
+        "mode": report["mode"],
+        "status": report["status"],
+        "findings": findings_out,
+        "summary": (
+            f"{len(findings_out)} finding(s); "
+            f"hard={sum(1 for f in findings_out if f['severity']=='hard')}, "
+            f"soft={sum(1 for f in findings_out if f['severity']=='soft')}, "
+            f"info={sum(1 for f in findings_out if f['severity']=='info')}"
+        ),
+    })
+
+
+@mcp.tool()
 @tool_envelope
 def list_tools_by_phase(ctx: Context) -> str:
     """Return the per-phase taxonomy of fork tools.
