@@ -6,6 +6,82 @@ This is an actively maintained community fork of [ahujasid/blender-mcp](https://
 
 ---
 
+## [2.3.0+fork.1] — 2026-04-30
+
+The Interior Design Workflow release. Five implementation slices land an end-to-end design pipeline on top of the v2.2.0 quality-of-life base: from a non-designer's first contact with the system, through Discovery questionnaire → moodboard lock → Blender scaffold → quality-gated render → SKU-tracked procurement → BoM. **The user gives rough direction and like/dislike feedback; the AI carries professional design knowledge and operates Blender.**
+
+The whole release is scoped by a single design spec — `docs/superpowers/specs/2026-04-29-interior-design-workflow-design.md` — with a hard "Sources & Citation Policy" gate: every numeric value, range, and rule shipped in this version traces to a fetched authoritative source (GB / IES / Neufert / Disney BSDF / IBC / named publications) and is cited inline. No invented values.
+
+### Added
+
+#### Knowledge layer (Slice 1)
+
+- **`docs/handbook/`** — 39 markdown files, 4446 lines, all sourced + cited:
+  - 11 core chapters: `codes`, `lighting`, `spatial`, `materials`, `camera`, `styling`, `render-output`, `discovery`, `project-types`, `furniture`, `acoustics`
+  - 19 style chapters under `styles/`: scandinavian, modern-minimal, japanese-wabi-sabi, new-chinese, french-cream, mid-century-modern, muji-minimal, american-classic, mediterranean, quiet-luxury, industrial-loft, speakeasy, insta-cafe, japanese-tea-cafe, chinese-tea-house, boutique-retail, modern-chinese-restaurant, coworking-office, industrial-cafe
+  - 8 space-type chapters under `space-types/`: living-room, bedroom, kitchen-dining, bathroom, cafe-lounge, retail-boutique, restaurant, small-office
+- **`src/blender_mcp/_handbook.py`** — pure-Python loader (path-traversal-safe).
+- **`read_design_handbook(chapter, query)`** — MCP tool with three call modes (list / read / search). Used at runtime by AI for citations and gate explanations.
+- **5 Claude skills** under `.claude/skills/interior-*` wiring trigger phrases to handbook chapters: `interior-discovery-intake`, `interior-style-locking`, `interior-plain-language-edit`, `interior-render-direction`, `interior-construction-handoff`.
+- **`tests/test_handbook_acceptance.py`** — citation-density acceptance gate.
+
+#### Discovery (Slice 2)
+
+- **`src/blender_mcp/_discovery.py`** — 25-question bank across 5 question types (direct, projective, metaphor, sensory, paired-comparison), session manager, scoring (Type-5 → 6-axis style_axes → 19-style cosine match → recommended_style).
+- **`src/blender_mcp/_project.py`** — project schema (multi-space scaffold, taste-profile, version-log) + canonical Blender-collection layout for 6 project types.
+- **`src/blender_mcp/_snapshots.py`** — version_snapshot / restore / log_entry. Medium snapshot frequency rule.
+- **7 MCP tools**: `run_discovery_questionnaire`, `submit_questionnaire_answers`, `read_taste_profile_tool`, `update_taste_profile_tool`, `create_interior_project`, `version_snapshot`, `version_log_entry`.
+
+#### Quality Gates (Slice 3)
+
+- **`src/blender_mcp/_gates.py`** — 9-dimension audit: materials non-trivial, lighting layers ≥ 2, Kelvin in range, camera params sane, color management = AgX/Filmic, render samples, prop density, scale sanity, texture packing.
+- **3 strictness modes**: `exploration` (only 🔴 hard gates), `hero` (all tiers), `construction` (gate #9 upgraded to hard).
+- **`audit_interior_quality(scene_info, project_root, strictness)`** — MCP tool. Every gate violation cites the relevant handbook chapter (`per lighting.md §1.2 …`).
+
+#### Procurement & BoM (Slice 4)
+
+- **`src/blender_mcp/_procurement.py`** — SKU records with 10-category taxonomy, 15-vendor whitelist (1688 / Taobao / Tmall / JD / Sketchfab / PolyHaven / Muji / IKEA / Vipp / etc.).
+- **`src/blender_mcp/_bom.py`** — BoM aggregator combining `procurement.json` + `taste-profile.locked_material_vocab` → markdown table grouped by category, CSV, summary dict.
+- **`src/blender_mcp/_sku_parse.py`** — pasted-page-content parser. Vendor detection from URL host. Price patterns for ¥ / 元 / CNY / JSON-ish.
+- **5 MCP tools**: `record_sku_purchase`, `list_procurement`, `remove_sku_purchase`, `extract_sku_metadata`, `generate_bom`.
+
+#### Workflow planning
+
+- **`docs/superpowers/specs/2026-04-29-interior-design-workflow-design.md`** — end-to-end design spec with Sources & Citation Policy hard rule.
+- **`docs/superpowers/plans/`** — Slice 1, 2, 3, 4 plans (executed); Slice 6, 7, 8 plans (queued).
+
+### Changed
+
+- **`pyproject.toml`** — bumped to `2.3.0+fork.1`.
+- **`addon.py`** — `bl_info["version"]` bumped to `(2, 3, 0)`.
+- **README** + **CHANGELOG** + **server.py docstrings** + **`_query_guide.py` examples** — replaced cafe-specific demonstration content with neutral residential examples (Scandinavian living room, linen sofa, oak parquet, ceramic vase) so the public-facing docs don't bias an LLM agent toward speakeasy/cafe vocabulary.
+
+### Branch hygiene
+
+- Closed branches: `fix/blender-4x-separate-color-node` (upstream PR #236 closed without merge; fix incorporated in develop independently). Three inherited-from-upstream branches removed from fork remote: `coderabbitai/docstrings/f0554aa`, `revert-84-main`, `revert-86-revert-84-main`.
+- Open: `fix/remove-prompt-injection-docstrings` — security fix backing upstream PR #237 (still open as of release).
+
+### Statistics
+
+- **+13 new MCP tools** (74 total in server.py, up from 61)
+- **+110 new tests** (205 total, up from 95)
+- **+7 new pure-Python modules** under `src/blender_mcp/`: `_handbook`, `_discovery`, `_project`, `_snapshots`, `_gates`, `_procurement`, `_bom`, `_sku_parse`
+- **39 handbook markdown files** (up from 0)
+- **0 fabricated section numbers** — every GB/IES/IBC/CIE/ASTM citation traces to a public source (or is explicitly labeled "exact section not verified — cf. [URL]")
+
+### Migration
+
+No action required for upstream-compatible callers. New tools are additive. New modules are pure Python and don't touch any existing import path. Existing chat sessions continue to work.
+
+For users who want to use the Interior Design workflow:
+
+1. Place the addon (`addon.py`) in Blender as before.
+2. Start a new project: AI invokes `interior-discovery-intake` skill (or call `run_discovery_questionnaire` directly).
+3. Lock a style → call `lock_moodboard` (lands in Slice 6).
+4. Audit before render: `audit_interior_quality(scene_info, project_root, strictness='hero')`.
+
+---
+
 ## [2.2.0+fork.1] — 2026-04-29
 
 Quality-of-life additions surfaced by the v2.1.0 live exterior-render exercise. No BC-break — every existing call shape continues to work; new behavior gated behind new opt-in parameters.
