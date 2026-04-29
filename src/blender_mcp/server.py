@@ -2339,6 +2339,385 @@ def version_log_entry(
 
 
 @mcp.tool()
+@telemetry_tool("generate_moodboard_candidates")
+@tool_envelope
+def generate_moodboard_candidates(
+    ctx: Context,
+    project_root: str,
+    style_slug: str = "",
+    space_type: str = "living_room",
+    n: int = 4,
+) -> str:
+    """
+    Build N image-gen prompts for moodboard candidates.
+
+    Reads the project's taste-profile.json to get the recommended style
+    (override via `style_slug`), parses the corresponding handbook
+    `styles/<slug>.md` chapter, and assembles N distinct prompts that
+    cite the style's palette hex values, materials, Kelvin range, and
+    space-type.
+
+    Returns the prompt list. The AI client picks an image-gen tool
+    (`generate_image_codex` / `generate_image_openai` /
+    `generate_3d_smart`) and runs them itself, then presents the
+    candidates to the user for selection. After selection, call
+    `lock_moodboard` to write the locked palette + anchors into the
+    taste profile.
+
+    Parameters:
+    - project_root: absolute path to the project directory.
+    - style_slug: handbook slug ('scandinavian', 'speakeasy', etc.).
+                  When empty, uses taste-profile.recommended_style.
+    - space_type: e.g. 'living_room', 'bedroom', 'cafe_lounge'.
+    - n: number of distinct prompts (1-8, default 4).
+
+    Returns: {prompts: [str, ...], style_slug, space_type,
+              moodboard_dir: <suggested save path>}
+    """
+    from pathlib import Path
+
+    from ._moodboard import build_moodboard_prompts, moodboard_dir
+    from ._project import ProjectError, read_taste_profile
+    from ._style_vocab import StyleVocabError, parse_style_chapter
+
+    proj_path = Path(project_root)
+    if not proj_path.is_dir():
+        raise ToolError(
+            code=ErrorCode.NOT_FOUND,
+            hint="project_root must be an existing directory",
+            detail=f"path: {project_root}",
+        )
+
+    profile_path = proj_path / "taste-profile.json"
+    try:
+        profile = read_taste_profile(profile_path)
+    except ProjectError as e:
+        raise ToolError(
+            code=ErrorCode.STATE_REQUIRED,
+            hint="run discovery first via run_discovery_questionnaire",
+            detail=str(e),
+        ) from e
+
+    slug = (style_slug or profile.get("recommended_style") or "").strip()
+    if not slug:
+        raise ToolError(
+            code=ErrorCode.STATE_REQUIRED,
+            hint="taste-profile has no recommended_style yet — run discovery to completion or pass style_slug explicitly",
+            detail="profile.recommended_style is empty and style_slug arg empty",
+        )
+
+    try:
+        vocab = parse_style_chapter(slug)
+    except StyleVocabError as e:
+        raise ToolError(
+            code=ErrorCode.NOT_FOUND,
+            hint="check available styles via read_design_handbook()",
+            detail=str(e),
+        ) from e
+
+    prompts = build_moodboard_prompts(profile, vocab, n=n, space_type=space_type)
+    return _tool_response({
+        "prompts": prompts,
+        "style_slug": slug,
+        "space_type": space_type,
+        "moodboard_dir": str(moodboard_dir(proj_path, slug)),
+    })
+
+
+@mcp.tool()
+@telemetry_tool("lock_moodboard")
+@tool_envelope
+def lock_moodboard(
+    ctx: Context,
+    project_root: str,
+    style_slug: str,
+    selected_image_paths: list,
+    palette_override: dict = None,
+) -> str:
+    """
+    Lock the chosen moodboard direction into taste-profile.json.
+
+    Writes four `locked_*` fields:
+    - locked_style: style_slug (canonical handbook slug)
+    - locked_palette: 60-30-10 hex map; uses style chapter palette
+                      unless palette_override is given
+    - locked_material_vocab: in/out lists from the style chapter
+    - locked_anchor_images: selected_image_paths (1-5 paths)
+
+    Auto-snapshots the project state before writing, with the label
+    `2.5-moodboard-<style_slug>`.
+
+    Parameters:
+    - project_root: absolute path to project.
+    - style_slug: handbook slug (must exist as styles/<slug>.md).
+    - selected_image_paths: list of 1-5 absolute paths to the chosen
+                            moodboard images.
+    - palette_override: optional {"60": "#hex", "30": "#hex", "10": "#hex"}.
+
+    Returns: {locked_style, locked_palette, locked_material_vocab,
+              locked_anchor_images, snapshot_id}.
+    """
+    from pathlib import Path
+
+    from ._project import ProjectError, read_taste_profile, write_taste_profile
+    from ._snapshots import SnapshotError, version_snapshot
+    from ._style_vocab import StyleVocabError, parse_style_chapter
+
+    proj_path = Path(project_root)
+    profile_path = proj_path / "taste-profile.json"
+
+    if not isinstance(selected_image_paths, list) or not selected_image_paths:
+        raise ToolError(
+            code=ErrorCode.BAD_INPUT,
+            hint="selected_image_paths must be a non-empty list",
+            detail=f"got: {type(selected_image_paths).__name__}",
+        )
+    if len(selected_image_paths) > 5:
+        raise ToolError(
+            code=ErrorCode.BAD_INPUT,
+            hint="at most 5 anchor images per moodboard",
+            detail=f"got {len(selected_image_paths)}",
+        )
+    for p in selected_image_paths:
+        if not Path(p).exists():
+            raise ToolError(
+                code=ErrorCode.NOT_FOUND,
+                hint="anchor image file does not exist",
+                detail=f"missing: {p}",
+            )
+
+    try:
+        vocab = parse_style_chapter(style_slug)
+    except StyleVocabError as e:
+        raise ToolError(
+            code=ErrorCode.NOT_FOUND,
+            hint="check available styles via read_design_handbook()",
+            detail=str(e),
+        ) from e
+
+    try:
+        profile = read_taste_profile(profile_path)
+    except ProjectError as e:
+        raise ToolError(
+            code=ErrorCode.STATE_REQUIRED,
+            hint="run discovery first via run_discovery_questionnaire",
+            detail=str(e),
+        ) from e
+
+    # Build locked palette: prefer override; else first 3 entries from chapter
+    if palette_override:
+        locked_palette = dict(palette_override)
+    else:
+        palette_chapter = vocab.palette_60_30_10
+        locked_palette = {}
+        roles = ("60", "30", "10")
+        for role_key, entry in zip(roles, palette_chapter[:3]):
+            hexes = entry.get("hex") or []
+            if hexes:
+                locked_palette[role_key] = hexes[0]
+
+    # Snapshot BEFORE writing so we can roll back
+    try:
+        snapshot = version_snapshot(
+            proj_path,
+            label=f"2.5-moodboard-{style_slug}",
+            extra_files=[],
+        )
+        snapshot_id = snapshot.get("snapshot_id", "")
+    except SnapshotError as e:
+        # Snapshot failure shouldn't block the lock; surface to caller.
+        snapshot_id = f"snapshot-failed: {e}"
+
+    profile["locked_style"] = style_slug
+    profile["locked_palette"] = locked_palette
+    profile["locked_material_vocab"] = {
+        "in": vocab.materials_in,
+        "out": vocab.materials_out,
+    }
+    profile["locked_anchor_images"] = [str(p) for p in selected_image_paths]
+    write_taste_profile(profile_path, profile)
+
+    return _tool_response({
+        "locked_style": style_slug,
+        "locked_palette": locked_palette,
+        "locked_material_vocab": profile["locked_material_vocab"],
+        "locked_anchor_images": profile["locked_anchor_images"],
+        "snapshot_id": snapshot_id,
+    })
+
+
+@mcp.tool()
+@telemetry_tool("place_furniture_from_style")
+@tool_envelope
+def place_furniture_from_style(
+    ctx: Context,
+    style_slug: str,
+    furniture_category: str,
+    target_zone_object: str = "",
+    sketchfab_query_override: str = "",
+) -> str:
+    """
+    Build a placement plan for a piece of style-aware furniture.
+
+    Returns a *plan* — does not execute. The plan tells the AI client
+    which existing MCP tools to call in sequence (search_sketchfab_models,
+    download_sketchfab_model, place_on_ground) so the placement is
+    transparent and overrideable.
+
+    The query is built from the style's prop / fixture vocabulary
+    parsed out of the handbook chapter, so the search bias matches
+    the locked style direction.
+
+    Parameters:
+    - style_slug: handbook style slug.
+    - furniture_category: short noun ('sofa', 'chair', 'lamp', 'table',
+                          'rug', 'art', 'plant', etc.).
+    - target_zone_object: optional Blender object name whose bbox the
+                          AI should ground the placement against.
+    - sketchfab_query_override: bypass the auto-built query.
+
+    Returns: {plan: [step, ...], sketchfab_query, style_slug}.
+    """
+    from ._style_vocab import StyleVocabError, parse_style_chapter
+
+    cat = (furniture_category or "").strip().lower()
+    if not cat:
+        raise ToolError(
+            code=ErrorCode.BAD_INPUT,
+            hint="furniture_category must be a short noun (e.g. 'sofa', 'lamp')",
+            detail="empty category",
+        )
+
+    try:
+        vocab = parse_style_chapter(style_slug)
+    except StyleVocabError as e:
+        raise ToolError(
+            code=ErrorCode.NOT_FOUND,
+            hint="check available styles via read_design_handbook()",
+            detail=str(e),
+        ) from e
+
+    # Build a Sketchfab query: <category> + 1-2 vocab descriptors
+    if sketchfab_query_override:
+        query = sketchfab_query_override.strip()
+    else:
+        # Pick descriptors: prefer fixture_keywords for lamps; else
+        # take a short cue from the first two materials_in entries.
+        descriptors: list = []
+        if "lamp" in cat or "pendant" in cat:
+            descriptors = [
+                k.split(".")[0].split(",")[0].split(" ")[0]
+                for k in vocab.fixture_keywords[:1]
+            ]
+        if not descriptors:
+            for raw in vocab.materials_in[:2]:
+                first_word = (
+                    raw.replace("**", "").lstrip("*-_ ")
+                    .split(".")[0].split(",")[0].split(" ")[0]
+                )
+                if first_word and len(first_word) >= 3:
+                    descriptors.append(first_word)
+        descriptor_str = " ".join(d.lower() for d in descriptors[:2])
+        query = f"{cat} {descriptor_str}".strip()
+        if len(query.split()) < 2:
+            # Add the style slug as a fallback descriptor
+            query = f"{cat} {style_slug.replace('-', ' ')}"
+    # Cap at 4 words (Sketchfab pitfall: long queries return 0)
+    query = " ".join(query.split()[:4])
+
+    plan = [
+        {
+            "step": 1,
+            "tool": "search_sketchfab_models",
+            "args": {
+                "query": query,
+                "categories": "furniture-home" if cat in (
+                    "sofa", "chair", "table", "rug", "lamp", "art", "shelf",
+                    "bed", "ottoman", "stool", "cabinet", "sideboard",
+                ) else "",
+                "downloadable": True,
+                "concise": True,
+            },
+            "purpose": (
+                f"find a {cat} matching the {style_slug} style vocabulary"
+            ),
+        },
+        {
+            "step": 2,
+            "tool": "download_sketchfab_model",
+            "args": {"uid": "<top result uid>"},
+            "purpose": "download + import to scene",
+        },
+    ]
+    if target_zone_object:
+        plan.append({
+            "step": 3,
+            "tool": "place_on_ground",
+            "args": {"target_obj": target_zone_object},
+            "purpose": (
+                f"ground the imported model on or inside '{target_zone_object}'"
+            ),
+        })
+
+    return _tool_response({
+        "plan": plan,
+        "sketchfab_query": query,
+        "style_slug": style_slug,
+        "furniture_category": cat,
+    })
+
+
+@mcp.tool()
+@telemetry_tool("extract_sku_from_url")
+@tool_envelope
+def extract_sku_from_url(
+    ctx: Context,
+    url: str,
+    page_html: str = "",
+    category_hint: str = "other",
+) -> str:
+    """
+    Live SKU metadata extraction with two-step flow for claude-in-chrome.
+
+    Step 1: Call with `page_html=""`. Returns a fetch instruction
+            telling the AI to use claude-in-chrome MCP to navigate
+            and capture page content.
+
+    Step 2: Call again with `page_html=<captured html or text>`.
+            Delegates to `extract_sku_metadata` and returns the parsed
+            draft procurement record.
+
+    The AI then reviews the draft and calls `record_sku_purchase`
+    with the corrected payload.
+
+    Parameters:
+    - url: product page URL (1688, Taobao, JD, Sketchfab, etc.).
+    - page_html: rendered HTML or text from the page (empty on first call).
+    - category_hint: pre-classify the SKU (default 'other').
+
+    Returns either a fetch instruction or a draft procurement record.
+    """
+    if not page_html.strip():
+        return _tool_response({
+            "needs_fetch": True,
+            "url": url,
+            "instruction": (
+                "Use claude-in-chrome MCP to fetch the page content, "
+                "then call extract_sku_from_url(url=..., page_html=...) "
+                "again with the rendered HTML or text. Recommended: "
+                "(1) navigate to the URL, (2) wait for page load, "
+                "(3) capture page text, (4) pass it back here."
+            ),
+            "category_hint": category_hint,
+        })
+
+    from ._sku_parse import parse_sku_metadata
+
+    draft = parse_sku_metadata(url, page_html, category_hint)
+    return _tool_response({"draft": draft})
+
+
+@mcp.tool()
 @telemetry_tool("record_sku_purchase")
 @tool_envelope
 def record_sku_purchase(
