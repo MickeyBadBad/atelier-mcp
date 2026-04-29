@@ -314,9 +314,9 @@ The tools were designed against real workflows. Some examples that exercise the 
 
 ### 🏠 Interior design / architectural visualization
 
-> **"Build a speakeasy lounge interior — 4.8m wide × 10m deep × 3.8m ceiling — with deep emerald walls (#1a3a2e), retro purple accent door (#3d2449), brushed brass details, dark walnut SPC floor, amber 2400K lighting, and a black Chesterfield sofa from Sketchfab."**
+> **"Build a Scandinavian-style living-room interior — 4.5m × 6m × 2.8m ceiling — with white plaster walls, a light-oak engineered floor, a charcoal linen sectional sofa from Sketchfab, a brushed-steel pendant at 3000K, and a north-facing morning HDRI from PolyHaven."**
 
-This single prompt exercises: `apply_material_color` (walls, door), `set_texture` (PolyHaven brick + wood), `download_sketchfab_model` (sofa), `place_on_ground` (sofa positioning), `download_polyhaven_asset` (HDRI), `set_camera_view` (3q hero shot), `render_image` (Cycles + Filmic).
+This single prompt exercises: `apply_material_color` (walls), `set_texture` (PolyHaven oak), `download_sketchfab_model` (sofa), `place_on_ground` (sofa positioning), `download_polyhaven_asset` (HDRI), `set_camera_view` (3q hero shot), `render_image` (Cycles + AgX).
 
 ### 🪑 Product visualization
 

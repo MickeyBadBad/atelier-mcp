@@ -23,7 +23,7 @@ from contextlib import redirect_stdout, suppress
 bl_info = {
     "name": "Blender MCP",
     "author": "BlenderMCP",
-    "version": (2, 1, 0),
+    "version": (2, 2, 0),
     "blender": (3, 0, 0),
     "location": "View3D > Sidebar > BlenderMCP",
     "description": "Connect Blender to Claude via MCP",
@@ -496,7 +496,9 @@ class BlenderMCPServer:
             "get_sketchfab_status": self.get_sketchfab_status,
             "get_hunyuan3d_status": self.get_hunyuan3d_status,
             # Design-workflow helpers (added by fork)
+            "apply_glass_material": self.apply_glass_material,
             "apply_material_color": self.apply_material_color,
+            "delete_objects": self.delete_objects,
             "place_on_ground": self.place_on_ground,
             "render_image": self.render_image,
             "set_camera_view": self.set_camera_view,
@@ -589,11 +591,19 @@ class BlenderMCPServer:
 
 
 
-    def get_scene_info(self):
-        """Get information about the current Blender scene"""
+    def get_scene_info(self, full=False):
+        """Get information about the current Blender scene.
+
+        With full=False (default, BC-preserving), returns the first 10
+        objects with name+type+location only — the original light shape
+        designed to keep response size manageable.
+
+        With full=True, returns every object's name + type + poly count.
+        Use when you need an inventory for cleanup decisions; the size
+        is bounded by object_count, not by texture/material content.
+        """
         try:
-            print("Getting scene info...")
-            # Simplify the scene info to reduce data size
+            print(f"Getting scene info (full={full})...")
             scene_info = {
                 "name": bpy.context.scene.name,
                 "object_count": len(bpy.context.scene.objects),
@@ -606,22 +616,32 @@ class BlenderMCPServer:
                 "blender_version_string": bpy.app.version_string,
             }
 
-            # Collect minimal object information (limit to first 10 objects)
+            cap = None if full else 10
             for i, obj in enumerate(bpy.context.scene.objects):
-                if i >= 10:  # Reduced from 20 to 10
+                if cap is not None and i >= cap:
                     break
 
-                obj_info = {
-                    "name": obj.name,
-                    "type": obj.type,
-                    # Only include basic location data
-                    "location": [round(float(obj.location.x), 2),
-                                round(float(obj.location.y), 2),
-                                round(float(obj.location.z), 2)],
-                }
+                if full:
+                    polys = 0
+                    if obj.type == "MESH" and obj.data:
+                        polys = len(obj.data.polygons)
+                    obj_info = {
+                        "name": obj.name,
+                        "type": obj.type,
+                        "poly_count": polys,
+                    }
+                else:
+                    obj_info = {
+                        "name": obj.name,
+                        "type": obj.type,
+                        "location": [round(float(obj.location.x), 2),
+                                     round(float(obj.location.y), 2),
+                                     round(float(obj.location.z), 2)],
+                    }
                 scene_info["objects"].append(obj_info)
 
-            print(f"Scene info collected: {len(scene_info['objects'])} objects")
+            print(f"Scene info collected: {len(scene_info['objects'])} of "
+                  f"{scene_info['object_count']} objects")
             return scene_info
         except Exception as e:
             print(f"Error in get_scene_info: {str(e)}")
@@ -650,7 +670,31 @@ class BlenderMCPServer:
 
 
 
-    def get_object_info(self, name):
+    def get_object_info(self, object_name=None, names=None):
+        """Return info about one object (legacy single-name form) OR a
+        batch keyed by name.
+
+        Pass `object_name="Cube"` for the original single-result behavior
+        (flat dict with name/type/location/materials/...).
+
+        Pass `names=["Cube", "Sphere"]` for a dict-of-results response:
+        `{"objects": {name: info_or_error}}`. Missing names get
+        `{"error": "..."}` in their slot — the call doesn't fail just
+        because one name is wrong.
+        """
+        if names is not None:
+            out = {}
+            for n in names:
+                try:
+                    out[n] = self._get_object_info_single(n)
+                except Exception as e:
+                    out[n] = {"error": str(e)}
+            return {"objects": out}
+        if object_name is not None:
+            return self._get_object_info_single(object_name)
+        return {"error": "Provide either `object_name` (str) or `names` (list[str])"}
+
+    def _get_object_info_single(self, name):
         """Get detailed information about a specific object"""
         obj = bpy.data.objects.get(name)
         if not obj:
@@ -1062,6 +1106,77 @@ class BlenderMCPServer:
             "emission_strength": float(emission_strength),
         }
 
+    def apply_glass_material(self, object_name, tint_hex="#FFFFFF",
+                             emission_color=None, emission_strength=0.0,
+                             transmission=0.95, roughness=0.05, ior=1.45,
+                             material_name=None):
+        """Apply a Principled BSDF tuned for glass: high transmission,
+        low roughness, optional warm interior emission. Replaces the
+        object's current material slot(s).
+
+        Parameters:
+        - tint_hex: '#RRGGBB' base color of the glass.
+        - emission_color: '#RRGGBB' interior glow color, or None for
+          no emission.
+        - emission_strength: 0-10 typical. 1.5 reads as 'lit room
+          interior'.
+        - transmission: 0-1. 0.95+ for true glass; lower for frosted/
+          cloudy.
+        - roughness: 0-1. 0.05 for clear; 0.3+ for frosted.
+        - ior: typically 1.45 (glass) / 1.33 (water) / 1.5 (high-quality
+          glass).
+        - material_name: explicit name; default = "Glass_<object_name>".
+        """
+        obj = bpy.data.objects.get(object_name)
+        if obj is None:
+            return {"error": f"Object '{object_name}' not found"}
+        if obj.type != "MESH":
+            return {"error": f"Object '{object_name}' is not a mesh"}
+
+        rgba = self._hex_to_rgba(tint_hex)
+        em_rgba = self._hex_to_rgba(emission_color) if emission_color else None
+        mat_name = material_name or f"Glass_{object_name}"
+
+        mat = bpy.data.materials.get(mat_name) or bpy.data.materials.new(mat_name)
+        mat.use_nodes = True
+        nt = mat.node_tree
+        nt.nodes.clear()
+        out_node = nt.nodes.new('ShaderNodeOutputMaterial')
+        out_node.location = (300, 0)
+        bsdf = nt.nodes.new('ShaderNodeBsdfPrincipled')
+        bsdf.location = (0, 0)
+
+        bsdf.inputs['Base Color'].default_value = rgba
+        bsdf.inputs['Roughness'].default_value = float(roughness)
+        # Cross-version safe: Blender 4.x -> 5.x renamed sockets
+        if 'Transmission Weight' in bsdf.inputs:
+            bsdf.inputs['Transmission Weight'].default_value = float(transmission)
+        elif 'Transmission' in bsdf.inputs:
+            bsdf.inputs['Transmission'].default_value = float(transmission)
+        if 'IOR' in bsdf.inputs:
+            bsdf.inputs['IOR'].default_value = float(ior)
+        if em_rgba is not None and emission_strength > 0:
+            for em_key in ('Emission', 'Emission Color'):
+                if em_key in bsdf.inputs:
+                    bsdf.inputs[em_key].default_value = em_rgba
+                    break
+            if 'Emission Strength' in bsdf.inputs:
+                bsdf.inputs['Emission Strength'].default_value = float(emission_strength)
+
+        nt.links.new(bsdf.outputs['BSDF'], out_node.inputs['Surface'])
+
+        obj.data.materials.clear()
+        obj.data.materials.append(mat)
+        return {
+            "object_name": object_name,
+            "material": mat_name,
+            "tint_hex": tint_hex,
+            "transmission": transmission,
+            "roughness": roughness,
+            "ior": ior,
+            "emission_strength": emission_strength,
+        }
+
     def place_on_ground(self, object_name, ground_z=0.0,
                         center_xy=False, target_xy=None):
         """Translate an object so its bounding-box bottom sits on ground_z.
@@ -1096,6 +1211,12 @@ class BlenderMCPServer:
         obj.location.y += delta_y
         obj.location.z += delta_z
 
+        # Flush dependency graph so descendant matrix_world reflects the
+        # parent's new translation before we re-read the bbox. Without this,
+        # _world_bbox walks children whose matrix_world is stale-cached
+        # at the pre-shift location, and we report a wrong post-place bbox.
+        bpy.context.view_layer.update()
+
         # Re-evaluate bbox for the response
         new_min, new_max = self._world_bbox(obj)
         return {
@@ -1105,14 +1226,104 @@ class BlenderMCPServer:
             "new_bbox_max": [round(new_max.x, 4), round(new_max.y, 4), round(new_max.z, 4)],
         }
 
+    def delete_objects(self, names=None, patterns=None, keep=None,
+                       purge_orphans=True):
+        """Bulk-remove scene objects by explicit names and/or fnmatch
+        glob patterns. The `keep` allowlist always wins -- objects in
+        `keep` are never removed even if matched by `names` or
+        `patterns`.
+
+        Parameters:
+        - names: list of exact object names to remove.
+        - patterns: list of fnmatch globs ("Test*", "Cone.*") matched
+          against object names.
+        - keep: list of names that must NOT be removed (allowlist).
+        - purge_orphans: when True (default), runs orphans_purge after
+          removal to drop unreferenced meshes / materials / images.
+
+        Returns: {"removed_count": int, "removed_sample": [first 20
+        names], "kept_protected": int}.
+        """
+        import fnmatch as _fnm
+        names_set = set(names or [])
+        patterns_list = list(patterns or [])
+        keep_set = set(keep or [])
+
+        to_remove = []
+        for obj in list(bpy.data.objects):
+            if obj.name in keep_set:
+                continue
+            if obj.name in names_set:
+                to_remove.append(obj)
+                continue
+            for pat in patterns_list:
+                if _fnm.fnmatch(obj.name, pat):
+                    to_remove.append(obj)
+                    break
+
+        removed_names = []
+        for obj in to_remove:
+            try:
+                obj_name = obj.name
+                bpy.data.objects.remove(obj, do_unlink=True)
+                removed_names.append(obj_name)
+            except Exception:
+                pass
+
+        if purge_orphans and removed_names:
+            try:
+                bpy.ops.outliner.orphans_purge(
+                    do_local_ids=True, do_linked_ids=True, do_recursive=True)
+            except Exception:
+                pass
+
+        return {
+            "removed_count": len(removed_names),
+            "removed_sample": removed_names[:20],
+            "kept_protected": len(keep_set),
+        }
+
+    @staticmethod
+    def _build_preview(image_path, max_dim=256):
+        """Read the rendered file and return a base64-encoded JPEG
+        thumbnail at most max_dim pixels on the longest side. Used by
+        render_image(return_preview=True) so the LLM can see the result
+        without a separate file read.
+
+        Falls back to None on any failure — the caller still has the
+        full filepath."""
+        import base64, io
+        try:
+            from PIL import Image
+        except ImportError:
+            # Blender ships PIL/Pillow; if it's missing we just skip.
+            return None
+        try:
+            with Image.open(image_path) as im:
+                im.thumbnail((max_dim, max_dim), Image.LANCZOS)
+                buf = io.BytesIO()
+                if im.mode in ("RGBA", "LA", "P"):
+                    im = im.convert("RGB")
+                im.save(buf, format="JPEG", quality=70)
+                return base64.b64encode(buf.getvalue()).decode("ascii")
+        except Exception:
+            return None
+
     def render_image(self, filepath, resolution=None, samples=64,
                      engine="CYCLES", use_gpu=True,
-                     view_transform="Filmic", look="Medium High Contrast"):
+                     view_transform="Filmic", look="Medium High Contrast",
+                     return_preview=False, preview_max_dim=256):
         """Render the active camera to filepath (PNG by extension).
 
         Sets engine, samples, resolution, and tone-mapping in one call instead
         of asking the LLM to wire scene properties through execute_code.
         Returns the absolute filepath of the rendered image.
+
+        When return_preview=True, the response also includes a `preview_b64`
+        key — a base64-encoded JPEG thumbnail at most preview_max_dim pixels
+        on the longest side. This lets an LLM see the render result inline
+        without a separate file Read step. Falls back silently to no preview
+        key if Pillow is unavailable or the file cannot be re-opened.
         """
         scene = bpy.context.scene
         if not scene.camera:
@@ -1151,12 +1362,17 @@ class BlenderMCPServer:
         scene.render.image_settings.file_format = "PNG"
         bpy.ops.render.render(write_still=True)
 
-        return {
+        result = {
             "filepath": bpy.path.abspath(filepath),
             "engine": scene.render.engine,
             "samples": int(samples) if engine.upper() == "CYCLES" else None,
             "resolution": [scene.render.resolution_x, scene.render.resolution_y],
         }
+        if return_preview:
+            preview = self._build_preview(filepath, max_dim=preview_max_dim)
+            if preview is not None:
+                result["preview_b64"] = preview
+        return result
 
     def set_camera_view(self, target_object=None, target_xyz=None,
                         angle="3q", distance=10.0, lens=35.0,
@@ -1415,7 +1631,8 @@ class BlenderMCPServer:
     def frame_camera_to_objects(self, targets, orbit_deg=35, elevation_deg=15,
                                 focal_mm=35.0, padding=1.1,
                                 composition="thirds_left",
-                                dof_target=None, f_stop=2.8):
+                                dof_target=None, f_stop=2.8,
+                                camera_xyz=None):
         """Position the active camera so all `targets` fit in frame, with
         composed orbit + elevation + thirds offset. LLMs frequently put
         cameras inside walls or aimed at the world origin; this wraps
@@ -1440,6 +1657,70 @@ class BlenderMCPServer:
             targets = [targets]
         if not targets:
             return {"error": "targets is empty"}
+
+        # Resolve the camera early so both modes can use it.
+        cam = bpy.context.scene.camera
+        if cam is None:
+            cam = next((o for o in bpy.context.scene.objects if o.type == 'CAMERA'), None)
+            if cam is None:
+                cam_data = bpy.data.cameras.new("Camera")
+                cam = bpy.data.objects.new("Camera", cam_data)
+                bpy.context.collection.objects.link(cam)
+            bpy.context.scene.camera = cam
+
+        # Explicit-xyz mode: bypass the bbox walk + orbit/elevation math.
+        # We just need a target_center to aim at. Averaging each target's
+        # world-space origin is good enough — the user already chose the
+        # exact vantage point, so we're not framing-fitting anyway.
+        # Composition/lens-shift presets are skipped in this mode (use
+        # execute_code if you need shift_x / shift_y).
+        if camera_xyz is not None:
+            missing = []
+            origins = []
+            for name in targets:
+                obj = bpy.data.objects.get(name)
+                if obj is None:
+                    missing.append(name)
+                    continue
+                # Robust to mocked/missing matrix_world: fall back to
+                # obj.location, then to (0,0,0) — the user already chose
+                # the camera vantage; aim direction is best-effort.
+                origin = None
+                try:
+                    mw = obj.matrix_world
+                    if mw is not None:
+                        origin = mw.translation
+                except Exception:
+                    origin = None
+                if origin is None:
+                    origin = getattr(obj, "location", (0.0, 0.0, 0.0))
+                origins.append(origin)
+            if missing:
+                return {"error": f"Targets not found: {missing}"}
+            try:
+                if origins:
+                    cx = sum(float(o[0]) for o in origins) / len(origins)
+                    cy = sum(float(o[1]) for o in origins) / len(origins)
+                    cz = sum(float(o[2]) for o in origins) / len(origins)
+                else:
+                    cx = cy = cz = 0.0
+            except (TypeError, ValueError):
+                cx = cy = cz = 0.0
+            center = mathutils.Vector((cx, cy, cz))
+            cam.location = mathutils.Vector([float(v) for v in camera_xyz])
+            direction = center - cam.location
+            cam.rotation_euler = direction.to_track_quat('-Z', 'Y').to_euler()
+            cam.data.lens = float(focal_mm)
+            return {
+                "camera_name": cam.name,
+                "location": [round(float(camera_xyz[0]), 4),
+                             round(float(camera_xyz[1]), 4),
+                             round(float(camera_xyz[2]), 4)],
+                "target_center": [round(cx, 4), round(cy, 4), round(cz, 4)],
+                "lens_mm": float(focal_mm),
+                "framed_targets": list(targets),
+                "mode": "explicit_xyz",
+            }
 
         # Aggregate world bbox of all targets (and their mesh descendants)
         mins = [float('inf')] * 3
@@ -1487,15 +1768,6 @@ class BlenderMCPServer:
             -_math.cos(elev_rad) * _math.cos(orbit_rad) * distance,
             _math.sin(elev_rad) * distance,
         ))
-
-        cam = bpy.context.scene.camera
-        if cam is None:
-            cam = next((o for o in bpy.context.scene.objects if o.type == 'CAMERA'), None)
-            if cam is None:
-                cam_data = bpy.data.cameras.new("Camera")
-                cam = bpy.data.objects.new("Camera", cam_data)
-                bpy.context.collection.objects.link(cam)
-            bpy.context.scene.camera = cam
 
         cam.location = center + offset
         direction = center - cam.location
@@ -1823,7 +2095,7 @@ class BlenderMCPServer:
         "roof_clay_tiles": {
             "polyhaven_ids": ["clay_roof_tiles_03", "ceramic_roof_01", "red_slate_roof_tiles_01"],
             "polyhaven_filter": {"asset_type": "textures", "categories": "roofing"},
-            "uv_scale": 4.0,
+            "uv_scale": 2.0,
             "description": "Terracotta or red clay roof tiles",
         },
         "roof_slate": {
@@ -1839,7 +2111,8 @@ class BlenderMCPServer:
     def apply_archviz_material(self, object_name, genre,
                                color_hint=None, finish=None,
                                resolution="2k", custom_hex=None,
-                               roughness=0.7, library="auto"):
+                               roughness=0.7, library="auto",
+                               uv_scale=None):
         """High-level: pick a textured PBR material by generic genre keyword,
         download from PolyHaven, apply to the object via set_texture.
 
@@ -1857,11 +2130,16 @@ class BlenderMCPServer:
         - roughness: only used for painted_wall
         - library: 'auto' (default — try polyhaven, then any registered
           alternative) | 'polyhaven' (force PolyHaven only)
+        - uv_scale: optional UV repeat multiplier (1.0–8.0 typical) that
+          overrides the genre's default. When None, the genre's default
+          uv_scale is applied to the texture's Mapping node. Set to e.g.
+          4.0 when the default reads too coarse on a small mesh
+          ('roof_clay_tiles' on a 5m roof).
 
         Returns the chosen asset_id and library, or an error if all
         candidates failed.
         """
-        # painted_wall short-circuit
+        # painted_wall short-circuit (no Mapping node — uv_scale ignored)
         if genre == "painted_wall":
             if not custom_hex:
                 return {"error": "genre='painted_wall' requires custom_hex='#RRGGBB'"}
@@ -1875,23 +2153,26 @@ class BlenderMCPServer:
             return {"error": f"Unknown genre '{genre}'. Available: {available}"}
 
         spec = self.ARCHVIZ_GENRES[genre]
+        # User-supplied uv_scale overrides the genre's default
+        effective_uv_scale = uv_scale if uv_scale is not None else spec.get("uv_scale", 1.0)
         candidates = list(spec.get("polyhaven_ids", []))
         last_err = None
         for asset_id in candidates:
             try:
-                dl = self.download_polyhaven_asset(
-                    asset_id=asset_id,
-                    asset_type="textures",
+                applied = self._apply_polyhaven_texture(
+                    object_name, asset_id,
                     resolution=resolution,
+                    uv_scale=effective_uv_scale,
                 )
-                if isinstance(dl, dict) and dl.get("error"):
-                    last_err = dl["error"]
-                    continue
-                # Successfully downloaded — apply
-                applied = self.set_texture(object_name, asset_id)
                 if isinstance(applied, dict) and applied.get("error"):
                     last_err = applied["error"]
                     continue
+                # Surface the helper's uv_scale_applied at the top level so
+                # callers (and tests) can verify what was actually written.
+                uv_scale_applied = (
+                    applied.get("uv_scale_applied")
+                    if isinstance(applied, dict) else None
+                )
                 return {
                     "object_name": object_name,
                     "genre": genre,
@@ -1899,7 +2180,10 @@ class BlenderMCPServer:
                     "asset_id": asset_id,
                     "resolution": resolution,
                     "description": spec.get("description"),
+                    "uv_scale": effective_uv_scale,
+                    "uv_scale_applied": uv_scale_applied,
                     "uv_scale_hint": spec.get("uv_scale", 1.0),
+                    "applied": applied,
                 }
             except Exception as e:
                 last_err = str(e)
@@ -1910,6 +2194,55 @@ class BlenderMCPServer:
                      f"Tried: {candidates}. Last error: {last_err}",
             "genre": genre,
             "candidates_tried": candidates,
+        }
+
+    def _apply_polyhaven_texture(self, object_name, asset_id, *,
+                                 resolution="2k", uv_scale=None, **kwargs):
+        """Internal helper: download a PolyHaven texture (if not already
+        cached) and apply it to the object, then write uv_scale into the
+        material's Mapping node so the genre's UV repeat (or a user
+        override) is actually honored.
+
+        Previously the genre's uv_scale was returned only as a hint and
+        callers had to use execute_blender_code to set the Mapping node's
+        Scale input — this helper centralizes that step.
+        """
+        # 1. Ensure the texture is downloaded
+        dl = self.download_polyhaven_asset(
+            asset_id=asset_id,
+            asset_type="textures",
+            resolution=resolution,
+        )
+        if isinstance(dl, dict) and dl.get("error"):
+            return {"error": dl["error"]}
+
+        # 2. Build the material and assign it to the object
+        applied = self.set_texture(object_name, asset_id)
+        if isinstance(applied, dict) and applied.get("error"):
+            return applied
+
+        # 3. Write uv_scale into the new material's Mapping node
+        if uv_scale is not None:
+            try:
+                mat_name = applied.get("material") if isinstance(applied, dict) else None
+                if mat_name:
+                    mat = bpy.data.materials.get(mat_name)
+                    if mat and mat.node_tree:
+                        for node in mat.node_tree.nodes:
+                            if node.type == 'MAPPING':
+                                s = float(uv_scale)
+                                node.inputs['Scale'].default_value = (s, s, s)
+                                break
+            except Exception as e:
+                # Non-fatal: texture is applied, just couldn't set scale
+                print(f"_apply_polyhaven_texture: failed to set uv_scale: {e}")
+
+        return {
+            "object_name": object_name,
+            "asset_id": asset_id,
+            "resolution": resolution,
+            "uv_scale_applied": uv_scale,
+            "set_texture_result": applied,
         }
 
     def list_archviz_genres(self):
@@ -3380,7 +3713,7 @@ class BlenderMCPServer:
         """
         report = {
             "blender_version": list(bpy.app.version),
-            "addon_version": "2.1.0+fork.1",
+            "addon_version": "2.2.0+fork.1",
             "services": {},
         }
 
@@ -3768,6 +4101,51 @@ class BlenderMCPServer:
         except Exception as e:
             return {"enabled": False, "message": f"OpenAI unreachable: {e}"}
 
+    @staticmethod
+    def _content_type_for_url(url):
+        """HEAD the URL to discover its real Content-Type. Returns the
+        normalized mime type (lowercased, params stripped) or None on
+        any error — caller falls back to the requested extension."""
+        try:
+            r = requests.head(url, timeout=15, allow_redirects=True)
+            return r.headers.get("Content-Type", "").split(";")[0].strip().lower()
+        except Exception:
+            return None
+
+    @staticmethod
+    def _save_image_with_extension_check(url, requested_path, max_retries=3):
+        """Download `url` → file path. If Content-Type indicates a
+        different image format from the requested extension, rewrite
+        the path to match before writing.
+
+        Why: Comfly's gemini-3.1-flash-image-preview-2k returns JPEG
+        bytes regardless of what you save_to. Writing JPEG to a .png
+        filename works at the byte level (image readers honor magic
+        bytes) but breaks downstream consumers that trust the
+        extension. By inspecting Content-Type we keep filename and
+        actual format in sync.
+
+        Returns the actual saved path.
+        """
+        ct = BlenderMCPServer._content_type_for_url(url) or ""
+        ct_to_ext = {
+            "image/png":    ".png",
+            "image/jpeg":   ".jpg",
+            "image/jpg":    ".jpg",
+            "image/webp":   ".webp",
+            "image/gif":    ".gif",
+            "image/bmp":    ".bmp",
+            "image/tiff":   ".tif",
+        }
+        target_path = requested_path
+        ext_should_be = ct_to_ext.get(ct)
+        if ext_should_be:
+            base, current_ext = os.path.splitext(requested_path)
+            if current_ext.lower() != ext_should_be:
+                target_path = base + ext_should_be
+        _resilient_download_to_file(url, target_path, max_retries=max_retries)
+        return target_path
+
     def generate_image_openai(self, prompt, model="dall-e-3",
                               size="1024x1024", quality="standard",
                               save_to=None, n=1, style=None):
@@ -3877,10 +4255,12 @@ class BlenderMCPServer:
             target = save_to if len(items) == 1 else \
                      f"{os.path.splitext(save_to)[0]}_{i+1}.png"
             if "url" in item:
-                # Stream URL → file with retry
+                # Stream URL → file with retry, rewriting extension if
+                # the upstream Content-Type doesn't match what was asked.
                 try:
-                    _resilient_download_to_file(item["url"], target, max_retries=3)
-                    saved.append(target)
+                    actual = self._save_image_with_extension_check(
+                        item["url"], target, max_retries=3)
+                    saved.append(actual)
                 except Exception as e:
                     return {"error": f"Failed to download image: {e}",
                             "image_url": item.get("url")}

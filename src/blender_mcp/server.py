@@ -277,31 +277,60 @@ def get_blender_connection():
 @mcp.tool()
 @telemetry_tool("get_scene_info")
 @tool_envelope
-def get_scene_info(ctx: Context) -> str:
-    """Get detailed information about the current Blender scene.
+def get_scene_info(ctx: Context, full: bool = False) -> str:
+    """Get information about the current Blender scene.
 
-    The response includes `blender_version` (e.g. [5, 1, 0]) and
-    `blender_version_string` (e.g. "5.1.0 Release"). Inspect these
-    before emitting code that touches version-sensitive surface:
-    shader/modifier enums, operator arguments, compositor node types,
-    and renamed APIs all drift between major versions.
+    Two modes:
+    - full=False (default): first 10 objects with name + type + location.
+      Designed to keep transport payload small — use when you just need
+      "what's the active scene named, what version of Blender".
+    - full=True: every object in the scene, each with name + type +
+      poly_count. Use this for cleanup decisions ("which 167 leftover
+      Test* objects can I delete?"). Larger payload but still bounded
+      by object_count, not by mesh detail.
+
+    Response includes Blender version (e.g. [5, 1, 0]) and version
+    string. Inspect these before emitting code that touches version-
+    sensitive surface (shader/modifier enums, operator arguments,
+    renamed APIs).
     """
     blender = get_blender_connection()
-    result = _check_addon_result(blender.send_command("get_scene_info"))
+    result = _check_addon_result(
+        blender.send_command("get_scene_info", {"full": full}))
     return result
 
 @mcp.tool()
 @telemetry_tool("get_object_info")
 @tool_envelope
-def get_object_info(ctx: Context, object_name: str) -> str:
-    """
-    Get detailed information about a specific object in the Blender scene.
+def get_object_info(
+    ctx: Context,
+    object_name: str = None,
+    names: list[str] = None,
+) -> str:
+    """Get info about one or many objects in the scene.
 
-    Parameters:
-    - object_name: The name of the object to get information about
+    - Pass `object_name="Cube"` to get a single object's info dict
+      (vertices, polys, materials, world location, bounding box).
+    - Pass `names=["Cube", "Sphere", ...]` to fetch multiple objects in
+      one call. Response shape: {"objects": {name: info_or_error}}.
+      Missing objects have `{"error": "..."}` in their slot — the call
+      doesn't fail just because one name is wrong.
+
+    Use the batch form whenever you'd otherwise loop multiple
+    `get_object_info` calls — fewer round trips, lower token cost.
     """
+    if object_name is None and not names:
+        raise ToolError(
+            ErrorCode.BAD_INPUT,
+            hint="Provide either `object_name` (str) or `names` (list[str])",
+        )
+    payload = {}
+    if object_name is not None:
+        payload["object_name"] = object_name
+    if names is not None:
+        payload["names"] = names
     blender = get_blender_connection()
-    result = _check_addon_result(blender.send_command("get_object_info", {"name": object_name}))
+    result = _check_addon_result(blender.send_command("get_object_info", payload))
     return result
 
 @mcp.tool()
@@ -466,6 +495,99 @@ def apply_material_color(
 
 @mcp.tool()
 @tool_envelope
+def apply_glass_material(
+    ctx: Context,
+    object_name: str,
+    tint_hex: str = "#FFFFFF",
+    emission_color: str = None,
+    emission_strength: float = 0.0,
+    transmission: float = 0.95,
+    roughness: float = 0.05,
+    ior: float = 1.45,
+    material_name: str = None,
+) -> str:
+    """
+    Apply a Principled BSDF tuned for glass on a mesh. Common in
+    archviz: windows, glasses, water surfaces, screens, transparent
+    plastic.
+
+    Parameters:
+    - object_name: target mesh.
+    - tint_hex: '#RRGGBB' base color (#FFFFFF = clear; #ffc77a = amber).
+    - emission_color: '#RRGGBB' interior glow color, or None.
+    - emission_strength: 0-10 typical. 1.5 reads as 'lit interior'.
+    - transmission: 0-1 (0.95+ for true glass).
+    - roughness: 0-1 (0.05 clear; 0.3+ frosted).
+    - ior: 1.45 glass / 1.33 water / 1.5 lead crystal.
+    - material_name: optional override; default 'Glass_<object_name>'.
+
+    Returns the assigned material name + the parameters applied.
+    """
+    blender = get_blender_connection()
+    result = _check_addon_result(blender.send_command("apply_glass_material", {
+        "object_name": object_name,
+        "tint_hex": tint_hex,
+        "emission_color": emission_color,
+        "emission_strength": emission_strength,
+        "transmission": transmission,
+        "roughness": roughness,
+        "ior": ior,
+        "material_name": material_name,
+    }))
+    return result
+
+
+@mcp.tool()
+@tool_envelope
+def delete_objects(
+    ctx: Context,
+    names: List[str] = None,
+    patterns: List[str] = None,
+    keep: List[str] = None,
+    purge_orphans: bool = True,
+) -> str:
+    """
+    Bulk-remove scene objects by name list and/or fnmatch glob
+    patterns, with an allowlist that's never touched.
+
+    Common pattern -- clean up after import / scatter test:
+
+        delete_objects(
+            patterns=["Test*", "Cone.*", "Cube.*", "Cylinder.*"],
+            keep=["HouseBody", "Roof", "Camera", "Ground"],
+        )
+
+    Avoids 20+ lines of execute_blender_code: walking bpy.data.objects,
+    matching, removing, then purging orphans. The `keep` allowlist wins
+    over both `names` and `patterns` -- listing a name in both `names`
+    and `keep` will preserve it, not remove it.
+
+    Parameters:
+    - names: explicit exact-match names to remove.
+    - patterns: fnmatch globs ("Test*"). Matched against object names.
+    - keep: names that must NOT be removed (overrides names + patterns).
+    - purge_orphans: when True (default), runs orphans_purge after
+      removal to free unused meshes/materials/images.
+
+    Returns: count + sample of removed names + protected count.
+    """
+    if not names and not patterns:
+        raise ToolError(
+            ErrorCode.BAD_INPUT,
+            hint="Provide at least one of `names` or `patterns`",
+        )
+    blender = get_blender_connection()
+    result = _check_addon_result(blender.send_command("delete_objects", {
+        "names": names or [],
+        "patterns": patterns or [],
+        "keep": keep or [],
+        "purge_orphans": purge_orphans,
+    }))
+    return result
+
+
+@mcp.tool()
+@tool_envelope
 def place_on_ground(
     ctx: Context,
     object_name: str,
@@ -507,6 +629,8 @@ def render_image(
     use_gpu: bool = True,
     view_transform: str = "Filmic",
     look: str = "Medium High Contrast",
+    return_preview: bool = False,
+    preview_max_dim: int = 256,
 ) -> str:
     """
     Render the active camera to a PNG file with one call.
@@ -523,6 +647,11 @@ def render_image(
     - use_gpu: Try GPU device for Cycles
     - view_transform: 'Filmic' (default), 'Standard', 'AgX', etc.
     - look: 'Medium High Contrast' (default), 'None', 'High Contrast', etc.
+    - return_preview: When True, the response includes a `preview_b64` key
+      holding a base64-encoded JPEG thumbnail of the render so the LLM can
+      see it inline without a separate file Read step. Default False.
+    - preview_max_dim: Longest-side pixel cap for the preview thumbnail
+      (default 256). Only used when return_preview=True.
     """
     blender = get_blender_connection()
     result = _check_addon_result(blender.send_command("render_image", {
@@ -533,6 +662,8 @@ def render_image(
         "use_gpu": use_gpu,
         "view_transform": view_transform,
         "look": look,
+        "return_preview": return_preview,
+        "preview_max_dim": preview_max_dim,
     }))
     return result
 
@@ -696,6 +827,7 @@ def frame_camera_to_objects(
     composition: str = "thirds_left",
     dof_target: str = None,
     f_stop: float = 2.8,
+    camera_xyz: List[float] = None,
 ) -> str:
     """
     WHEN TO USE THIS vs set_camera_view:
@@ -712,6 +844,20 @@ def frame_camera_to_objects(
     verticals stay straight — the single biggest "looks pro vs amateur"
     tell in archviz.
 
+    Two positioning modes:
+
+    1. **Implicit (orbit + elevation)** — default. The camera is placed
+       on a sphere around the targets' bbox at `orbit_deg` around Z and
+       `elevation_deg` above horizontal. Good for quick 3/4 hero shots
+       when you don't care about exact vantage.
+
+    2. **Explicit (`camera_xyz=[x, y, z]`)** — the camera is placed at
+       exactly those world coordinates and aimed at the targets' bbox
+       center. `orbit_deg` and `elevation_deg` are ignored. Use this
+       when you know the vantage you want — orbit math conventions
+       (`0=front`) aren't obvious for arbitrary scenes. Composition
+       presets are skipped in explicit mode.
+
     Parameters:
     - targets: Single object name or list — frames their combined bbox
     - orbit_deg: Rotation around Z (0=front, 90=right side, 180=back)
@@ -722,6 +868,8 @@ def frame_camera_to_objects(
                    'thirds_top' | 'thirds_bottom'
     - dof_target: Optional object name to focus on (enables DOF)
     - f_stop: Aperture (lower = more blur). Only used when dof_target is set.
+    - camera_xyz: [x, y, z] world coords for explicit mode (overrides
+      orbit/elevation). When None (default), uses orbit/elevation.
 
     Returns final camera location, distance, FOV, etc.
     """
@@ -737,6 +885,7 @@ def frame_camera_to_objects(
         "composition": composition,
         "dof_target": dof_target,
         "f_stop": f_stop,
+        "camera_xyz": camera_xyz,
     }))
     return result
 
@@ -809,6 +958,7 @@ def apply_archviz_material(
     custom_hex: str = None,
     roughness: float = 0.7,
     library: str = "auto",
+    uv_scale: float = None,
 ) -> str:
     """
     Apply a textured PBR material chosen by generic genre keyword.
@@ -835,6 +985,10 @@ def apply_archviz_material(
     - custom_hex: Required when genre='painted_wall' ('#RRGGBB')
     - roughness: Roughness for painted_wall (0..1)
     - library: 'auto' (default) | 'polyhaven'
+    - uv_scale: optional UV repeat multiplier (1.0-8.0 typical). When None,
+      uses the genre's default. Set to e.g. 4.0 when the default reads too
+      coarse on a small mesh ('roof_clay_tiles' on a 5m roof). Ignored for
+      painted_wall (no Mapping node).
     """
     blender = get_blender_connection()
     result = _check_addon_result(blender.send_command("apply_archviz_material", {
@@ -846,6 +1000,7 @@ def apply_archviz_material(
         "custom_hex": custom_hex,
         "roughness": roughness,
         "library": library,
+        "uv_scale": uv_scale,
     }))
     return result
 
@@ -913,6 +1068,8 @@ def search_ambientcg_assets(
         "category": category,
         "limit": limit,
     }))
+    from ._filters import attach_zero_result_hint
+    result = attach_zero_result_hint(result, service="ambientcg")
     return result
 
 
@@ -1211,14 +1368,14 @@ def generate_tripo3d_text_to_3d(
     into the scene. Returns task_id, imported object names, and download URL.
 
     **Prompt tips:** ONE object, not a scene. 'a chair' beats 'a chair
-    in a lounge'. Bake material + style into the prompt: 'vintage brass
-    door knocker, ornate, photorealistic'. Color-and-material specifics
-    win: 'walnut wood' beats 'brown wood'. For the full prompt cheat
-    sheet, call `asset_query_help(service='tripo3d')`.
+    in a lounge'. Bake material + style into the prompt: 'hand-thrown
+    ceramic vase, raku glaze, photorealistic'. Color-and-material
+    specifics win: 'walnut wood' beats 'brown wood'. For the full prompt
+    cheat sheet, call `asset_query_help(service='tripo3d')`.
 
     Parameters:
     - prompt: SINGLE-object English description with material + style
-              (e.g. "vintage brass speakeasy door knocker, ornate")
+              (e.g. "hand-thrown ceramic vase with raku glaze, ornate")
     - model_version: 'v3.1-20260211' (default, newest), 'v3.0-20250812',
                      'v2.5-20250123', 'P1-20260311' (low-poly tuned)
     - texture: include textures
@@ -1730,6 +1887,114 @@ def asset_query_help(ctx: Context, service: str = "all") -> str:
 
 
 @mcp.tool()
+@tool_envelope
+def read_design_handbook(
+    ctx: Context,
+    chapter: str = "",
+    query: str = "",
+) -> str:
+    """
+    Read the Interior Design Handbook — the source-of-truth for design
+    rules, standards, codes, and style guidance used by the Interior
+    Design Workflow.
+
+    The handbook lives as markdown in docs/handbook/. Every numeric
+    value inside is sourced and cited (per the Sources & Citation
+    Policy in docs/superpowers/specs/2026-04-29-interior-design-
+    workflow-design.md).
+
+    Three call modes:
+
+    1. List all chapters: `read_design_handbook()`
+    2. Read a specific chapter: `read_design_handbook(chapter="lighting")`
+    3. Search across chapters: `read_design_handbook(query="Kelvin")`
+
+    Parameters:
+    - chapter: chapter slug ("lighting", "styles/scandinavian", etc.).
+               Empty string means list mode.
+    - query: free-text query, searched case-insensitive across all
+             chapters. If both `chapter` and `query` are given,
+             `chapter` wins.
+
+    Returns the chapter content (markdown) or a list of available
+    chapters or search results, all wrapped in the canonical envelope.
+    """
+    from ._handbook import (
+        HandbookError, list_chapters, read_chapter, search_chapters,
+    )
+
+    if chapter:
+        try:
+            content = read_chapter(chapter)
+        except HandbookError as e:
+            raise ToolError(
+                code=ErrorCode.NOT_FOUND,
+                hint="Use read_design_handbook() with no args to list chapters.",
+                detail=str(e),
+            ) from e
+        return _tool_response({
+            "chapter": chapter,
+            "content": content,
+        })
+
+    if query:
+        try:
+            results = search_chapters(query)
+        except HandbookError as e:
+            raise ToolError(
+                code=ErrorCode.INTERNAL,
+                hint="Handbook may be missing or corrupted.",
+                detail=str(e),
+            ) from e
+        return _tool_response({
+            "query": query,
+            "results": results,
+        })
+
+    # No args → list mode
+    try:
+        chapters = list_chapters()
+    except HandbookError as e:
+        raise ToolError(
+            code=ErrorCode.STATE_REQUIRED,
+            hint="Run from a repo with docs/handbook/ present.",
+            detail=str(e),
+        ) from e
+    return _tool_response({
+        "available_chapters": chapters,
+        "tip": (
+            "Pass chapter='<slug>' to read one, or query='<keyword>' to "
+            "search across all chapters."
+        ),
+    })
+
+
+@mcp.tool()
+@tool_envelope
+def list_tools_by_phase(ctx: Context) -> str:
+    """Return the per-phase taxonomy of fork tools.
+
+    Use this for orientation when starting a new workflow. The phases
+    map to typical LLM workflow stages:
+
+    - discovery / diagnostics -> "what's in the scene + what works?"
+    - asset_search / asset_download / asset_generation -> "get content"
+    - material / geometry -> "build / tweak"
+    - camera / lighting -> "compose"
+    - render / export -> "ship"
+    - scene_management -> "cleanup, escape hatch"
+    - config -> "budget knobs"
+
+    Returns: {"phases": {phase_name: [tool_names]}, "total_tools": N}.
+    """
+    from ._phases import PHASES
+    return {
+        "phases": {p: list(t) for p, t in PHASES.items()},
+        "total_tools": sum(len(t) for t in PHASES.values()),
+    }
+
+
+@mcp.tool()
 @telemetry_tool("get_polyhaven_categories")
 @tool_envelope
 def get_polyhaven_categories(ctx: Context, asset_type: str = "hdris") -> str:
@@ -1755,7 +2020,8 @@ def get_polyhaven_categories(ctx: Context, asset_type: str = "hdris") -> str:
 def search_polyhaven_assets(
     ctx: Context,
     asset_type: str = "all",
-    categories: str = None
+    categories: str = None,
+    concise: bool = True,
 ) -> str:
     """
     Search for assets on Polyhaven by category filter.
@@ -1777,6 +2043,9 @@ def search_polyhaven_assets(
     Parameters:
     - asset_type: hdris | textures | models | all
     - categories: comma-separated canonical tags (NOT free text)
+    - concise: when True (default), drops evs_cap / whitebalance /
+      sponsors / files_hash / coords / date metadata. Pass False for
+      the raw API response.
 
     Returns a list of matching assets with basic information.
     """
@@ -1785,6 +2054,11 @@ def search_polyhaven_assets(
         "asset_type": asset_type,
         "categories": categories
     }))
+    from ._filters import attach_zero_result_hint
+    if concise:
+        from ._filters import slim_polyhaven
+        result = slim_polyhaven(result)
+    result = attach_zero_result_hint(result, service="polyhaven")
     return result
 
 @mcp.tool()
@@ -1884,14 +2158,16 @@ def search_sketchfab_models(
     query: str,
     categories: str = None,
     count: int = 20,
-    downloadable: bool = True
+    downloadable: bool = True,
+    concise: bool = True,
 ) -> str:
     """
     Search for models on Sketchfab.
 
     **Query tips:** short noun phrase, 2-4 words, English. Object-first:
-    'chesterfield sofa' beats 'a sofa made of leather'. Long sentences
-    return zero results. Skip brand names (they're copyright-cleansed).
+    'linen sectional sofa' beats 'a sofa made of fabric for living room'.
+    Long sentences return zero results. Skip brand names (they're
+    copyright-cleansed).
     `downloadable=True` is the default and drops ~70% of results — set
     False to widen the pool when zero hits, then check the `license`
     field manually before commercial use. For the full per-service
@@ -1904,17 +2180,29 @@ def search_sketchfab_models(
       'food-drink', 'nature-plants', 'places-travel'.
     - count: Maximum number of results to return (default 20)
     - downloadable: Whether to include only downloadable models (default True)
+    - concise: when True (default), drops 4-thumbnail-size variants,
+      archives metadata, user avatar URLs, tags array, etc. — keeps
+      only the fields needed to pick a model. Pass `concise=False` to
+      get the raw Sketchfab API response if you need a missing field.
 
     Returns a formatted list of matching models.
     """
     blender = get_blender_connection()
-    logger.info(f"Searching Sketchfab models with query: {query}, categories: {categories}, count: {count}, downloadable: {downloadable}")
+    logger.info(
+        f"Searching Sketchfab models with query: {query}, categories: "
+        f"{categories}, count: {count}, downloadable: {downloadable}, "
+        f"concise: {concise}")
     result = _check_addon_result(blender.send_command("search_sketchfab_models", {
         "query": query,
         "categories": categories,
         "count": count,
-        "downloadable": downloadable
+        "downloadable": downloadable,
     }))
+    from ._filters import attach_zero_result_hint
+    if concise:
+        from ._filters import slim_sketchfab
+        result = slim_sketchfab(result)
+    result = attach_zero_result_hint(result, service="sketchfab")
     return result
 
 @mcp.tool()
@@ -2009,40 +2297,97 @@ def _process_bbox(original_bbox: list[float] | list[int] | None) -> list[int] | 
 def generate_hyper3d_text_to_3d(
     ctx: Context,
     text_prompt: str,
-    bbox_condition: list[float]=None
+    bbox_condition: list[float] = None,
+    auto_import: bool = True,
+    import_name: str = "Hyper3DGenerated",
+    max_wait_seconds: int = 240,
+    poll_interval_seconds: float = 5.0,
 ) -> str:
     """
-    Generate a 3D asset via Hyper3D Rodin from a text prompt, import
-    into Blender. Free-trial key works for blockouts/prototyping; rate-
-    limits during peak hours surface as RATE_LIMITED ErrorCode.
+    Generate a 3D asset via Hyper3D Rodin from a text prompt.
+
+    Two flows:
+
+    1. **auto_import=True (default)** — sync: creates the task, polls
+       status until all entries are 'Done' (or timeout), then calls
+       import_hyper3d_asset transparently. Returns the import result.
+    2. **auto_import=False** — async: returns task_uuid +
+       subscription_key immediately. Caller drives
+       poll_hyper3d_job_status + import_hyper3d_asset manually. Use
+       when you want to fire-and-forget multiple jobs in parallel and
+       import them later.
+
+    Free-trial key works for blockouts/prototyping; rate-limits during
+    peak hours surface as RATE_LIMITED ErrorCode.
 
     **Prompt tips:** SHORT prompt-style English, ONE simple object.
-    Multi-object prompts produce mesh hybrids (worse than Tripo3D in
-    this regard). Hyper3D's output is often dense — run `mesh_cleanup`
-    after import. For higher fidelity prefer Tripo3D or Meshy. For the
-    full prompt cheat sheet, call `asset_query_help(service='hyper3d')`.
+    Multi-object prompts produce mesh hybrids. Hyper3D's output is
+    often dense — run `mesh_cleanup` after import. For higher fidelity
+    prefer Tripo3D or Meshy. For the full prompt cheat sheet, call
+    `asset_query_help(service='hyper3d')`.
 
     Parameters:
     - text_prompt: SHORT single-object English description
                    (e.g. "small brass cube, simple geometry").
-                   Multi-object prompts will fail.
     - bbox_condition: Optional [Length, Width, Height] ratio floats.
+    - auto_import: True (default) for sync poll+import. False for raw
+                   async return of task_uuid + subscription_key.
+    - import_name: Object name to assign on import (auto_import only).
+    - max_wait_seconds: Polling timeout (auto_import only).
+    - poll_interval_seconds: Wait between polls (auto_import only).
 
-    Returns a message indicating success or failure.
+    Returns the import result with object name + bbox + status (when
+    auto_import=True), or {task_uuid, subscription_key, auto_import:False}
+    (when auto_import=False).
     """
+    import time as _time
+
     blender = get_blender_connection()
-    result = _check_addon_result(blender.send_command("create_rodin_job", {
+    create = _check_addon_result(blender.send_command("create_rodin_job", {
         "text_prompt": text_prompt,
         "images": None,
         "bbox_condition": _process_bbox(bbox_condition),
     }))
-    succeed = result.get("submit_time", False)
-    if succeed:
+    if not create.get("submit_time"):
+        return create
+
+    task_uuid = create["uuid"]
+    sub_key = create["jobs"]["subscription_key"]
+
+    if not auto_import:
         return {
-            "task_uuid": result["uuid"],
-            "subscription_key": result["jobs"]["subscription_key"],
+            "task_uuid": task_uuid,
+            "subscription_key": sub_key,
+            "auto_import": False,
         }
-    return result
+
+    # Sync: poll until done, then import
+    deadline = _time.monotonic() + max_wait_seconds
+    last_status = None
+    while _time.monotonic() < deadline:
+        poll_result = blender.send_command("poll_hyper3d_job_status",
+                                           {"subscription_key": sub_key})
+        last_status = poll_result.get("status_list", [])
+        if last_status and all(s == "Done" for s in last_status):
+            break
+        if any(s == "Failed" for s in last_status):
+            raise ToolError(
+                ErrorCode.INTERNAL,
+                hint="Hyper3D job reported Failed status",
+                detail=f"status_list={last_status}",
+            )
+        _time.sleep(poll_interval_seconds)
+    else:
+        raise ToolError(
+            ErrorCode.NETWORK,
+            hint=f"Hyper3D polling timed out after {max_wait_seconds}s",
+            detail=f"last_status={last_status}",
+        )
+
+    return _check_addon_result(blender.send_command("import_hyper3d_asset", {
+        "name": import_name,
+        "task_uuid": task_uuid,
+    }))
 
 @mcp.tool()
 @telemetry_tool("generate_hyper3d_image_to_3d")

@@ -60,14 +60,14 @@ _GUIDE: dict[str, dict[str, Any]] = {
         ],
         "examples": [
             {
-                "user_intent": "dark wood floor for speakeasy lounge",
+                "user_intent": "oak parquet floor for living room",
                 "do": (
                     "search_polyhaven_assets(asset_type='textures', "
                     "categories='wood,floor')"
                 ),
                 "do_not": (
                     "search_polyhaven_assets(asset_type='textures', "
-                    "categories='dark walnut floor')  # not a category"
+                    "categories='light oak parquet floor')  # not a category"
                 ),
             },
             {
@@ -163,9 +163,9 @@ _GUIDE: dict[str, dict[str, Any]] = {
             "sports-fitness", "weapons-military",
         ],
         "pitfalls": [
-            "Long queries return 0: 'dark green leather chesterfield "
-            "sofa with deep buttoning' → nothing. Drop to 'chesterfield "
-            "sofa'.",
+            "Long queries return 0: 'mid-century walnut sideboard with "
+            "tapered legs and brass pulls' → nothing. Drop to 'walnut "
+            "sideboard'.",
             "`downloadable=True` is the default and is opinionated. "
             "Set False to widen the pool when zero downloadable results.",
             "Brand names rarely match (copyright-cleansed). Use generic "
@@ -175,19 +175,19 @@ _GUIDE: dict[str, dict[str, Any]] = {
         ],
         "examples": [
             {
-                "user_intent": "Chesterfield sofa for lounge",
+                "user_intent": "linen sectional sofa for living room",
                 "do": (
-                    "search_sketchfab_models(query='chesterfield sofa', "
+                    "search_sketchfab_models(query='linen sectional sofa', "
                     "categories='furniture-home', downloadable=True)"
                 ),
                 "do_not": (
-                    "search_sketchfab_models(query='dark brown vintage "
-                    "leather Chesterfield three-seater sofa')  # too long"
+                    "search_sketchfab_models(query='charcoal grey linen "
+                    "modern sectional sofa with chaise')  # too long"
                 ),
             },
             {
-                "user_intent": "moon relief sculpture for wall",
-                "do": "search_sketchfab_models(query='moon relief')",
+                "user_intent": "geometric wall sculpture for accent wall",
+                "do": "search_sketchfab_models(query='geometric wall sculpture')",
             },
         ],
         "fallback_ladder": [
@@ -228,11 +228,11 @@ _GUIDE: dict[str, dict[str, Any]] = {
         ],
         "examples": [
             {
-                "user_intent": "brass speakeasy door knocker for entry",
+                "user_intent": "ceramic vase for shelf styling",
                 "do": (
-                    "generate_tripo3d_text_to_3d(prompt='vintage brass "
-                    "speakeasy door knocker, ornate, photorealistic', "
-                    "pbr=True, target_size=0.15)"
+                    "generate_tripo3d_text_to_3d(prompt='hand-thrown "
+                    "ceramic vase with raku glaze, photorealistic', "
+                    "pbr=True, target_size=0.25)"
                 ),
             },
             {
