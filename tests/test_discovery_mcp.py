@@ -19,6 +19,11 @@ def test_discovery_mcp_tools_registered():
     assert not missing, f"missing tools: {missing}"
 
 
+def test_audit_interior_quality_registered():
+    from blender_mcp import server
+    assert hasattr(server, "audit_interior_quality")
+
+
 def test_create_interior_project_has_signature():
     """The tool wrapper should be callable with the spec'd parameters."""
     import inspect

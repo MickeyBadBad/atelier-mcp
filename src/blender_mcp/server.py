@@ -2339,6 +2339,105 @@ def version_log_entry(
 
 
 @mcp.tool()
+@telemetry_tool("audit_interior_quality")
+@tool_envelope
+def audit_interior_quality(
+    ctx: Context,
+    scene_info: dict,
+    mode: str = "hero",
+    project_root: str = "",
+) -> str:
+    """
+    Run the 9-dimension Interior Quality audit on a captured scene_info.
+
+    The AI client should first fetch scene state via
+    `get_scene_info(full=True)`, then pass the result here. Each gate
+    references its handbook chapter so the AI can explain failures to
+    the user with citations.
+
+    Strictness modes (per workflow spec § Quality Gates):
+    - 'exploration' (Stages 0-4, L1 loops): only HARD findings reported
+    - 'hero'        (Stage 5 final, Stage 6): all severities
+    - 'construction' (Stage 6.5 deliverables): all severities + texture
+                     packing upgraded to HARD
+
+    Parameters:
+    - scene_info: dict from get_scene_info(full=True). Required shape:
+        {objects: [{name, type, has_albedo_map, has_roughness_map,
+                    is_prop, category, height_m}],
+         lights: [{name, layer, kelvin}],
+         cameras: [{name, focal_mm, height_m, near_clip, inside_wall}],
+         view_transform: 'AgX' | 'Filmic' | 'Standard',
+         render_settings: {engine, cycles_samples, eevee_samples},
+         scene_meta: {floor_area_m2, pack_resources}}
+    - mode: 'exploration' | 'hero' | 'construction' (default 'hero')
+    - project_root: optional absolute path; if given, taste-profile.json
+                    is loaded so kelvin gate can apply project-type range
+
+    Returns:
+        {mode, status: 'pass' | 'warn' | 'fail',
+         findings: [{gate, severity, message, citation, suggested_fix}]}
+    """
+    from pathlib import Path
+
+    from ._gates import StrictnessMode, run_audit
+    from ._project import ProjectError, read_taste_profile
+
+    try:
+        m = StrictnessMode(mode.lower())
+    except ValueError as e:
+        raise ToolError(
+            code=ErrorCode.BAD_INPUT,
+            hint="mode must be one of: exploration / hero / construction",
+            detail=str(e),
+        ) from e
+
+    project_meta = None
+    if project_root:
+        try:
+            profile = read_taste_profile(
+                Path(project_root) / "taste-profile.json"
+            )
+            # Project type may live in project.json or be embedded in profile
+            project_json = Path(project_root) / "project.json"
+            if project_json.is_file():
+                import json as _json
+                project_meta = _json.loads(
+                    project_json.read_text(encoding="utf-8")
+                )
+            else:
+                project_meta = profile
+        except ProjectError:
+            # No profile — kelvin gate becomes a no-op, others still run
+            project_meta = None
+
+    report = run_audit(scene_info, mode=m, project=project_meta)
+
+    # Convert Finding namedtuples to plain dicts for JSON serialization
+    findings_out = [
+        {
+            "gate": f.gate,
+            "severity": f.severity.value,
+            "message": f.message,
+            "citation": f.citation,
+            "suggested_fix": f.suggested_fix,
+        }
+        for f in report["findings"]
+    ]
+    return _tool_response({
+        "mode": report["mode"],
+        "status": report["status"],
+        "findings": findings_out,
+        "summary": (
+            f"{len(findings_out)} finding(s); "
+            f"hard={sum(1 for f in findings_out if f['severity']=='hard')}, "
+            f"soft={sum(1 for f in findings_out if f['severity']=='soft')}, "
+            f"info={sum(1 for f in findings_out if f['severity']=='info')}"
+        ),
+    })
+
+
+@mcp.tool()
 @tool_envelope
 def list_tools_by_phase(ctx: Context) -> str:
     """Return the per-phase taxonomy of fork tools.
