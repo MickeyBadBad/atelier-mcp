@@ -24,6 +24,20 @@ def test_audit_interior_quality_registered():
     assert hasattr(server, "audit_interior_quality")
 
 
+def test_procurement_mcp_tools_registered():
+    """Slice 4 procurement + BoM + SKU parser tools."""
+    from blender_mcp import server
+    expected = (
+        "record_sku_purchase",
+        "list_procurement",
+        "remove_sku_purchase",
+        "extract_sku_metadata",
+        "generate_bom",
+    )
+    missing = [name for name in expected if not hasattr(server, name)]
+    assert not missing, f"missing tools: {missing}"
+
+
 def test_create_interior_project_has_signature():
     """The tool wrapper should be callable with the spec'd parameters."""
     import inspect

@@ -2339,6 +2339,179 @@ def version_log_entry(
 
 
 @mcp.tool()
+@telemetry_tool("record_sku_purchase")
+@tool_envelope
+def record_sku_purchase(
+    ctx: Context,
+    project_root: str,
+    record: dict,
+) -> str:
+    """
+    Record a SKU purchase (or planned purchase) in `procurement.json`.
+
+    The record must include: category, label, url, vendor, price_rmb.
+    Optional: quantity (default 1), lead_time_days, image_url, notes,
+    linked_object (Blender object name).
+
+    Categories: sofa | chair | table | rug | lamp | art | hardware |
+                finish | appliance | other
+    Vendors:    1688 | taobao | tmall | jd | xiaohongshu |
+                sketchfab | polyhaven | ambientcg | tripo3d |
+                ikea | muji | vipp | manufacturer | showroom | other
+
+    Returns: {sku_id} — id is auto-assigned if not provided.
+    """
+    from pathlib import Path
+
+    from ._procurement import ProcurementError, record_purchase
+
+    try:
+        sku_id = record_purchase(Path(project_root), record)
+    except ProcurementError as e:
+        raise ToolError(
+            code=ErrorCode.BAD_INPUT,
+            hint="check category + vendor + required fields (category, label, url, vendor, price_rmb)",
+            detail=str(e),
+        ) from e
+    return _tool_response({"sku_id": sku_id})
+
+
+@mcp.tool()
+@telemetry_tool("list_procurement")
+@tool_envelope
+def list_procurement(
+    ctx: Context,
+    project_root: str,
+) -> str:
+    """Return all procurement records for a project."""
+    from pathlib import Path
+
+    from ._procurement import list_purchases
+
+    items = list_purchases(Path(project_root))
+    return _tool_response({"items": items, "count": len(items)})
+
+
+@mcp.tool()
+@telemetry_tool("remove_sku_purchase")
+@tool_envelope
+def remove_sku_purchase(
+    ctx: Context,
+    project_root: str,
+    sku_id: str,
+) -> str:
+    """Remove the SKU with the given id from procurement.json."""
+    from pathlib import Path
+
+    from ._procurement import remove_purchase
+
+    removed = remove_purchase(Path(project_root), sku_id)
+    if not removed:
+        raise ToolError(
+            code=ErrorCode.NOT_FOUND,
+            hint="sku_id not present in procurement.json",
+            detail=f"sku_id='{sku_id}' not found under {project_root}",
+        )
+    return _tool_response({"removed": True, "sku_id": sku_id})
+
+
+@mcp.tool()
+@telemetry_tool("extract_sku_metadata")
+@tool_envelope
+def extract_sku_metadata(
+    ctx: Context,
+    url: str,
+    page_content: str,
+    category_hint: str = "other",
+) -> str:
+    """
+    Best-effort SKU metadata extraction from pasted page content.
+
+    The AI client should fetch the product page (via claude-in-chrome
+    or by asking the user to paste the page) and pass `page_content`
+    in. This tool parses out title, price (RMB), image URL, and
+    detects the vendor from the URL host.
+
+    Returns a draft procurement record. The AI should review the
+    fields and call `record_sku_purchase` with the corrected payload.
+
+    Parameters:
+    - url: the product page URL (used to detect vendor).
+    - page_content: pasted HTML or rendered text.
+    - category_hint: pre-classify if known (default 'other').
+
+    Returns: {draft: {category, label, url, vendor, price_rmb,
+                      quantity, image_url, notes}}
+    """
+    from ._sku_parse import parse_sku_metadata
+
+    draft = parse_sku_metadata(
+        url=url,
+        html_or_text=page_content,
+        category_hint=category_hint,
+    )
+    return _tool_response({"draft": draft})
+
+
+@mcp.tool()
+@telemetry_tool("generate_bom")
+@tool_envelope
+def generate_bom(
+    ctx: Context,
+    project_root: str,
+    output_format: str = "markdown",
+    write_to: str = "",
+) -> str:
+    """
+    Generate the Bill of Materials from procurement records + the
+    project's locked-material vocab in taste-profile.json.
+
+    Parameters:
+    - project_root: absolute path to the project directory.
+    - output_format: 'markdown' (default) | 'csv'
+    - write_to: optional absolute path; if given, the rendered output
+                is also written to this file.
+
+    Returns: {summary: {item_count, total_cost_rmb, max_lead_time_days,
+                        by_category}, content: <rendered string>,
+              written_to: <path or empty>}
+    """
+    from pathlib import Path
+
+    from ._bom import (
+        bom_summary, collect_bom_rows, render_bom_csv,
+        render_bom_markdown,
+    )
+
+    rows = collect_bom_rows(Path(project_root))
+    summary = bom_summary(rows)
+    fmt = (output_format or "markdown").lower()
+    if fmt == "csv":
+        content = render_bom_csv(rows)
+    elif fmt == "markdown":
+        content = render_bom_markdown(rows)
+    else:
+        raise ToolError(
+            code=ErrorCode.BAD_INPUT,
+            hint="output_format must be 'markdown' or 'csv'",
+            detail=f"got: {output_format!r}",
+        )
+
+    written_to = ""
+    if write_to:
+        out_path = Path(write_to)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(content, encoding="utf-8")
+        written_to = str(out_path.resolve())
+
+    return _tool_response({
+        "summary": summary,
+        "content": content,
+        "written_to": written_to,
+    })
+
+
+@mcp.tool()
 @telemetry_tool("audit_interior_quality")
 @tool_envelope
 def audit_interior_quality(
