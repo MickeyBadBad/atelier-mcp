@@ -1,0 +1,418 @@
+# Discovery Question Bank
+#
+# Mirrors docs/handbook/discovery.md. Each question carries:
+#   - id: stable slug
+#   - type: 1 | 2 | 3 | 4 | 5 (per discovery.md typology)
+#   - text_zh, text_en
+#   - choices: list of {value, text_zh, text_en, axes: {axis_name: weight}}
+#   - options: list of two {value, text_zh, text_en, axes} for Type-5 paired
+#   - free_input: bool (always allowed for taste questions)
+#   - free_input_only: bool (when true the question is text-only)
+#   - multi_select: bool
+#   - axes_influenced: list of axes this question moves
+#   - source: handbook anchor or external citation
+#
+# Style axes (canonical, see _discovery.py AXES):
+#   warmth · complexity · natural_vs_polished · contrast · aged_vs_new · symmetric_vs_organic
+#
+# Each axis range is [-1, 1]. Choice weights are summed and clamped per axis.
+
+- version: 1
+- last_updated: "2026-04-29"
+
+# === Type 1 — Direct preference (hard constraints) ===
+
+- id: q01_who_uses
+  type: 1
+  text_zh: "这个空间主要给谁用？"
+  text_en: "Who uses this space most?"
+  multi_select: true
+  free_input: true
+  choices:
+    - {value: self_only, text_zh: "我自己", text_en: "Me only"}
+    - {value: family, text_zh: "我和家人", text_en: "Me and family"}
+    - {value: occasional_guests, text_zh: "我自己 + 偶尔朋友", text_en: "Me + occasional guests"}
+    - {value: customers, text_zh: "经营给客人", text_en: "Customers / clients"}
+    - {value: team, text_zh: "团队办公", text_en: "Team / office"}
+  axes_influenced: []
+  source: "discovery.md §Type-1"
+
+- id: q02_project_type
+  type: 1
+  text_zh: "项目类型？"
+  text_en: "Project type?"
+  multi_select: false
+  free_input: false
+  choices:
+    - {value: residential_apartment, text_zh: "公寓", text_en: "Apartment"}
+    - {value: residential_house, text_zh: "独栋住宅", text_en: "Detached house"}
+    - {value: cafe_lounge, text_zh: "咖啡馆 / lounge", text_en: "Cafe / lounge"}
+    - {value: restaurant_full_service, text_zh: "餐厅", text_en: "Restaurant"}
+    - {value: retail_boutique, text_zh: "零售小店", text_en: "Retail boutique"}
+    - {value: office_small, text_zh: "小型办公", text_en: "Small office"}
+  axes_influenced: []
+  source: "discovery.md §Type-1; project-types.md taxonomy"
+
+- id: q03_total_area
+  type: 1
+  text_zh: "项目总面积大约多少 m²？"
+  text_en: "What's the total area in m²?"
+  multi_select: false
+  free_input: true
+  choices:
+    - {value: under_30, text_zh: "30 m² 以下", text_en: "Under 30"}
+    - {value: 30_60, text_zh: "30–60 m²", text_en: "30–60"}
+    - {value: 60_100, text_zh: "60–100 m²", text_en: "60–100"}
+    - {value: 100_200, text_zh: "100–200 m²", text_en: "100–200"}
+    - {value: over_200, text_zh: "200 m² 以上", text_en: "Over 200"}
+  axes_influenced: []
+  source: "discovery.md §Type-1"
+
+- id: q04_budget
+  type: 1
+  text_zh: "预算区间（人民币）？"
+  text_en: "Budget range (RMB)?"
+  multi_select: false
+  free_input: true
+  choices:
+    - {value: under_30k, text_zh: "3万以下", text_en: "Under ¥30k"}
+    - {value: 30_60k, text_zh: "3–6万", text_en: "¥30–60k"}
+    - {value: 60_150k, text_zh: "6–15万", text_en: "¥60–150k"}
+    - {value: 150_500k, text_zh: "15–50万", text_en: "¥150–500k"}
+    - {value: over_500k, text_zh: "50万以上", text_en: "Over ¥500k"}
+  axes_influenced: []
+  source: "discovery.md §Type-1"
+
+- id: q05_hard_constraints
+  type: 1
+  text_zh: "有哪些不能动的硬约束？（结构、家具、设备等）"
+  text_en: "Hard constraints — what cannot be changed?"
+  multi_select: true
+  free_input: true
+  choices:
+    - {value: existing_furniture, text_zh: "现有家具不能换", text_en: "Existing furniture stays"}
+    - {value: load_walls, text_zh: "承重墙不能动", text_en: "Load-bearing walls"}
+    - {value: kitchen_position, text_zh: "厨房水电位置", text_en: "Kitchen plumbing/wiring position"}
+    - {value: bath_position, text_zh: "卫浴位置", text_en: "Bathroom position"}
+    - {value: structural_features, text_zh: "梁柱外露", text_en: "Exposed beams/columns"}
+  axes_influenced: []
+  source: "discovery.md §Type-1"
+
+# === Type 2 — Projective ===
+
+- id: q06_first_second_feeling
+  type: 2
+  text_zh: "走进这个空间，你第一秒希望感受到什么？"
+  text_en: "Walking in, what do you want to FEEL in the first second?"
+  multi_select: true
+  free_input: true
+  choices:
+    - {value: warm_hugged, text_zh: "温暖被拥抱", text_en: "Warmly hugged",
+       axes: {warmth: 0.4, contrast: -0.1}}
+    - {value: orderly, text_zh: "整洁有秩序", text_en: "Orderly",
+       axes: {complexity: -0.3, symmetric_vs_organic: 0.3}}
+    - {value: curious, text_zh: "好奇想探索", text_en: "Curious to explore",
+       axes: {complexity: 0.4, contrast: 0.2}}
+    - {value: relaxed, text_zh: "放松想发呆", text_en: "Relaxed",
+       axes: {warmth: 0.3, contrast: -0.2, complexity: -0.1}}
+    - {value: energized, text_zh: "兴奋想拍照", text_en: "Energized / photo-ready",
+       axes: {contrast: 0.4, complexity: 0.3}}
+    - {value: professional, text_zh: "专业被尊重", text_en: "Respected / professional",
+       axes: {warmth: -0.1, complexity: -0.2, contrast: 0.1}}
+  axes_influenced: [warmth, contrast, complexity, symmetric_vs_organic]
+  source: "discovery.md §Type-2; Norman 2013"
+
+- id: q07_evening_feeling
+  type: 2
+  text_zh: "夜晚使用这个空间时，希望像什么？"
+  text_en: "Evening use — what should it feel like?"
+  multi_select: false
+  free_input: true
+  choices:
+    - {value: candle_glow, text_zh: "蜡烛光晕的温暖", text_en: "Candle glow warmth",
+       axes: {warmth: 0.5, complexity: -0.1}}
+    - {value: library_quiet, text_zh: "图书馆的安静", text_en: "Library quiet",
+       axes: {warmth: 0.1, contrast: -0.2}}
+    - {value: jazz_bar, text_zh: "爵士酒吧的低调", text_en: "Jazz bar / low-key",
+       axes: {warmth: 0.3, contrast: 0.3, complexity: 0.1}}
+    - {value: clean_modern, text_zh: "干净现代的极简", text_en: "Clean modern minimalism",
+       axes: {warmth: -0.1, complexity: -0.4, contrast: 0.1}}
+  axes_influenced: [warmth, contrast, complexity]
+  source: "discovery.md §Type-2"
+
+# === Type 3 — Metaphor / scenario ===
+
+- id: q08_movie
+  type: 3
+  text_zh: "如果这个空间是一部电影，会是哪部？"
+  text_en: "If this space were a movie, which?"
+  multi_select: true
+  free_input: true
+  choices:
+    - {value: grand_budapest, text_zh: "《布达佩斯大饭店》", text_en: "The Grand Budapest Hotel",
+       axes: {complexity: 0.4, contrast: 0.3, symmetric_vs_organic: 0.4, aged_vs_new: 0.4}}
+    - {value: crouching_tiger, text_zh: "《卧虎藏龙》", text_en: "Crouching Tiger Hidden Dragon",
+       axes: {warmth: 0.2, complexity: 0.2, natural_vs_polished: 0.4, aged_vs_new: 0.5}}
+    - {value: interstellar, text_zh: "《星际穿越》", text_en: "Interstellar",
+       axes: {warmth: -0.2, complexity: -0.3, contrast: 0.3, natural_vs_polished: -0.4}}
+    - {value: 1900_pianist, text_zh: "《海上钢琴师》", text_en: "The Legend of 1900",
+       axes: {warmth: 0.3, complexity: 0.3, aged_vs_new: 0.5}}
+    - {value: kikujiro, text_zh: "《菊次郎的夏天》", text_en: "Kikujiro",
+       axes: {warmth: 0.4, complexity: -0.2, natural_vs_polished: 0.3}}
+  axes_influenced: [warmth, complexity, contrast, symmetric_vs_organic, aged_vs_new, natural_vs_polished]
+  source: "discovery.md §Type-3"
+
+# === Type 4 — Sensory / haptic ===
+
+- id: q09_textures
+  type: 4
+  text_zh: "选 3 种你想触碰的质感"
+  text_en: "Pick 3 textures you want to touch"
+  multi_select: true
+  free_input: true
+  choices:
+    - {value: terracotta, text_zh: "粗陶", text_en: "Terracotta",
+       axes: {warmth: 0.3, natural_vs_polished: 0.5, aged_vs_new: 0.3}}
+    - {value: linen, text_zh: "亚麻", text_en: "Linen",
+       axes: {warmth: 0.2, natural_vs_polished: 0.4}}
+    - {value: leather, text_zh: "真皮", text_en: "Leather",
+       axes: {warmth: 0.3, complexity: 0.1, aged_vs_new: 0.2}}
+    - {value: velvet, text_zh: "天鹅绒", text_en: "Velvet",
+       axes: {warmth: 0.3, complexity: 0.3, contrast: 0.2}}
+    - {value: marble_polished, text_zh: "抛光大理石", text_en: "Polished marble",
+       axes: {warmth: -0.1, complexity: 0.1, natural_vs_polished: -0.4}}
+    - {value: rough_wood, text_zh: "粗木", text_en: "Rough wood",
+       axes: {warmth: 0.4, natural_vs_polished: 0.5, aged_vs_new: 0.4}}
+    - {value: brushed_brass, text_zh: "拉丝黄铜", text_en: "Brushed brass",
+       axes: {warmth: 0.3, complexity: 0.2, aged_vs_new: 0.2}}
+    - {value: concrete, text_zh: "清水混凝土", text_en: "Raw concrete",
+       axes: {warmth: -0.3, complexity: -0.2, natural_vs_polished: 0.2}}
+    - {value: fur_rug, text_zh: "绒毛地毯", text_en: "Fur rug",
+       axes: {warmth: 0.5, complexity: 0.2}}
+  axes_influenced: [warmth, complexity, contrast, natural_vs_polished, aged_vs_new]
+  source: "discovery.md §Type-4; Weinschenk 2011"
+
+# === Type 5 — Visual A/B paired comparisons ===
+
+- id: q10_warm_vs_cool
+  type: 5
+  text_zh: "暖光 vs 冷光"
+  text_en: "Warm vs cool light"
+  options:
+    - {value: warm, text_zh: "暖光（2200–2700K）", text_en: "Warm (2200–2700K)",
+       axes: {warmth: 0.5}}
+    - {value: cool, text_zh: "冷光（4000K+）", text_en: "Cool (4000K+)",
+       axes: {warmth: -0.5}}
+  axes_influenced: [warmth]
+  source: "discovery.md §Type-5; Green & Rao 1971"
+
+- id: q11_sparse_vs_full
+  type: 5
+  text_zh: "极简 vs 丰富"
+  text_en: "Sparse vs full"
+  options:
+    - {value: sparse, text_zh: "极简：留白", text_en: "Sparse / negative space",
+       axes: {complexity: -0.5}}
+    - {value: full, text_zh: "丰富：层叠细节", text_en: "Full / layered detail",
+       axes: {complexity: 0.5}}
+  axes_influenced: [complexity]
+  source: "discovery.md §Type-5"
+
+- id: q12_wood_vs_stone
+  type: 5
+  text_zh: "木质 vs 石材"
+  text_en: "Wood vs stone"
+  options:
+    - {value: wood, text_zh: "温润的木", text_en: "Warm wood",
+       axes: {warmth: 0.3, natural_vs_polished: 0.3}}
+    - {value: stone, text_zh: "凉硬的石", text_en: "Cool stone",
+       axes: {warmth: -0.3, natural_vs_polished: -0.2}}
+  axes_influenced: [warmth, natural_vs_polished]
+  source: "discovery.md §Type-5"
+
+- id: q13_high_vs_soft_contrast
+  type: 5
+  text_zh: "高对比 vs 柔和"
+  text_en: "High contrast vs soft"
+  options:
+    - {value: high, text_zh: "黑白分明", text_en: "Bold contrast",
+       axes: {contrast: 0.5}}
+    - {value: soft, text_zh: "灰阶过渡", text_en: "Soft gradients",
+       axes: {contrast: -0.5}}
+  axes_influenced: [contrast]
+  source: "discovery.md §Type-5"
+
+- id: q14_aged_vs_new
+  type: 5
+  text_zh: "老旧 vs 崭新"
+  text_en: "Aged vs new"
+  options:
+    - {value: aged, text_zh: "有岁月感", text_en: "Aged / patina",
+       axes: {aged_vs_new: 0.5}}
+    - {value: new, text_zh: "崭新干净", text_en: "Crisp / new",
+       axes: {aged_vs_new: -0.5}}
+  axes_influenced: [aged_vs_new]
+  source: "discovery.md §Type-5"
+
+- id: q15_symmetric_vs_organic
+  type: 5
+  text_zh: "对称 vs 错落"
+  text_en: "Symmetric vs organic"
+  options:
+    - {value: symmetric, text_zh: "整齐对称", text_en: "Symmetric",
+       axes: {symmetric_vs_organic: 0.5}}
+    - {value: organic, text_zh: "自然错落", text_en: "Organic",
+       axes: {symmetric_vs_organic: -0.5}}
+  axes_influenced: [symmetric_vs_organic]
+  source: "discovery.md §Type-5"
+
+- id: q16_natural_vs_polished
+  type: 5
+  text_zh: "天然质感 vs 精致打磨"
+  text_en: "Natural vs polished"
+  options:
+    - {value: natural, text_zh: "原木 + 亚麻 + 粗陶", text_en: "Raw materials",
+       axes: {natural_vs_polished: 0.5}}
+    - {value: polished, text_zh: "抛光大理石 + 镜面金属", text_en: "Polished surfaces",
+       axes: {natural_vs_polished: -0.5}}
+  axes_influenced: [natural_vs_polished]
+  source: "discovery.md §Type-5"
+
+- id: q17_tight_vs_open
+  type: 5
+  text_zh: "紧凑包裹 vs 开阔通透"
+  text_en: "Cocoon vs open"
+  options:
+    - {value: tight, text_zh: "包裹的私密", text_en: "Cocooned / intimate",
+       axes: {warmth: 0.2, complexity: 0.1}}
+    - {value: open, text_zh: "通透的开阔", text_en: "Open / airy",
+       axes: {warmth: -0.1, complexity: -0.2}}
+  axes_influenced: [warmth, complexity]
+  source: "discovery.md §Type-5"
+
+- id: q18_dim_vs_bright
+  type: 5
+  text_zh: "昏暗 vs 明亮"
+  text_en: "Dim vs bright"
+  options:
+    - {value: dim, text_zh: "昏暗的氛围", text_en: "Dim / moody",
+       axes: {contrast: 0.3, warmth: 0.2}}
+    - {value: bright, text_zh: "明亮的清新", text_en: "Bright / fresh",
+       axes: {contrast: -0.2, warmth: -0.1}}
+  axes_influenced: [warmth, contrast]
+  source: "discovery.md §Type-5"
+
+# === Type 2 again — projective deepening ===
+
+- id: q19_dont_want
+  type: 2
+  text_zh: "你最不想这个空间像什么？"
+  text_en: "What do you most NOT want it to look like?"
+  multi_select: true
+  free_input: true
+  choices:
+    - {value: hospital, text_zh: "医院/办公室", text_en: "Hospital / office",
+       axes: {warmth: 0.3, natural_vs_polished: 0.2}}
+    - {value: showroom, text_zh: "样板间", text_en: "Show flat",
+       axes: {complexity: 0.2, aged_vs_new: 0.2}}
+    - {value: cluttered, text_zh: "杂乱拥挤", text_en: "Cluttered",
+       axes: {complexity: -0.4}}
+    - {value: dated, text_zh: "过时土气", text_en: "Dated / tacky",
+       axes: {aged_vs_new: -0.2}}
+    - {value: cold, text_zh: "冰冷无情", text_en: "Cold / impersonal",
+       axes: {warmth: 0.4}}
+  axes_influenced: [warmth, complexity, natural_vs_polished, aged_vs_new]
+  source: "discovery.md §Type-2"
+
+- id: q20_guest_feeling
+  type: 2
+  text_zh: "（商业空间）你想让客人感受到什么？"
+  text_en: "(Commercial) What should guests feel?"
+  multi_select: true
+  free_input: true
+  choices:
+    - {value: welcomed, text_zh: "被欢迎被招待", text_en: "Welcomed",
+       axes: {warmth: 0.4}}
+    - {value: special, text_zh: "这地方特别", text_en: "This place is special",
+       axes: {complexity: 0.3, contrast: 0.2}}
+    - {value: photo_worthy, text_zh: "想拍照分享", text_en: "Photo-worthy",
+       axes: {contrast: 0.3, complexity: 0.3}}
+    - {value: linger, text_zh: "想多坐一会", text_en: "Want to linger",
+       axes: {warmth: 0.4, contrast: -0.1}}
+    - {value: respected, text_zh: "被认真对待", text_en: "Taken seriously",
+       axes: {complexity: -0.1, contrast: 0.1}}
+  axes_influenced: [warmth, complexity, contrast]
+  source: "discovery.md §Type-2"
+
+# === Lifestyle (Type 1) ===
+
+- id: q21_morning_or_evening
+  type: 1
+  text_zh: "你更多是早晨型还是夜晚型？"
+  text_en: "Morning or evening person?"
+  multi_select: false
+  free_input: true
+  choices:
+    - {value: morning, text_zh: "早晨", text_en: "Morning"}
+    - {value: evening, text_zh: "夜晚", text_en: "Evening"}
+    - {value: both, text_zh: "都有", text_en: "Both"}
+  axes_influenced: []
+  source: "discovery.md §Type-1 (lifestyle)"
+
+- id: q22_entertain
+  type: 1
+  text_zh: "（住宅）多久招待客人？"
+  text_en: "(Residential) How often do you entertain?"
+  multi_select: false
+  free_input: true
+  choices:
+    - {value: never, text_zh: "几乎不", text_en: "Almost never"}
+    - {value: monthly, text_zh: "每月一两次", text_en: "1-2× / month"}
+    - {value: weekly, text_zh: "每周", text_en: "Weekly"}
+    - {value: more, text_zh: "更频繁", text_en: "More often"}
+  axes_influenced: []
+  source: "discovery.md §Type-1 (lifestyle)"
+
+# === Type 3 — analogical scene (free text) ===
+
+- id: q23_reference_place
+  type: 3
+  text_zh: "你去过的、印象最深的一个空间是哪里？为什么？"
+  text_en: "A real place you visited that left a strong impression — describe it"
+  multi_select: false
+  free_input: true
+  free_input_only: true
+  axes_influenced: []
+  source: "discovery.md §Type-3"
+
+# === Type 4 — sensory deepening ===
+
+- id: q24_sound
+  type: 4
+  text_zh: "在这个空间里你最想听到什么？"
+  text_en: "What sound do you want here?"
+  multi_select: false
+  free_input: true
+  choices:
+    - {value: silence, text_zh: "完全的安静", text_en: "Total quiet",
+       axes: {complexity: -0.2}}
+    - {value: music, text_zh: "背景音乐", text_en: "Background music",
+       axes: {warmth: 0.2}}
+    - {value: chatter, text_zh: "人声 + 杯碟", text_en: "Chatter + clinking",
+       axes: {warmth: 0.3, complexity: 0.2}}
+    - {value: nature, text_zh: "雨声 / 风声", text_en: "Rain / wind",
+       axes: {natural_vs_polished: 0.3, warmth: 0.1}}
+  axes_influenced: [warmth, complexity, natural_vs_polished]
+  source: "discovery.md §Type-4"
+
+# === Closing free-text ===
+
+- id: q25_anything_else
+  type: 1
+  text_zh: "还有别的想法 / 必须的偏好 / 担心的事？"
+  text_en: "Anything else — preferences, worries, must-haves?"
+  multi_select: false
+  free_input: true
+  free_input_only: true
+  axes_influenced: []
+  source: "discovery.md §Type-1 (closing)"
