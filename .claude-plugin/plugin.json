@@ -1,0 +1,26 @@
+{
+  "name": "atelier",
+  "description": "AI interior design workflow — handbook-grounded, citation-backed. Brings a 39-chapter design handbook (GB / IES / Neufert / Disney BSDF cited), 19 published-project-cited style chapters, 9-dimension quality gates, discovery questionnaire, procurement / BoM, and 80-tool Blender MCP integration. For homeowners and small-business owners with zero design background.",
+  "version": "2.5.0+fork.1",
+  "author": {
+    "name": "Atelier MCP / BlenderMCP fork",
+    "url": "https://github.com/MickeyBadBad/blender-mcp"
+  },
+  "homepage": "https://github.com/MickeyBadBad/blender-mcp",
+  "repository": "https://github.com/MickeyBadBad/blender-mcp",
+  "license": "MIT",
+  "keywords": [
+    "interior-design",
+    "ai-assistant",
+    "blender",
+    "mcp",
+    "model-context-protocol",
+    "claude-plugin",
+    "design-handbook",
+    "design-workflow",
+    "architectural-visualization",
+    "moodboard",
+    "bom",
+    "procurement"
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "name": "atelier",
+  "description": "AI interior design workflow toolkit — handbook + skills + commands + agents + MCP, all bundled.",
+  "owner": {
+    "name": "MickeyBadBad",
+    "url": "https://github.com/MickeyBadBad"
+  },
+  "plugins": [
+    {
+      "name": "atelier",
+      "description": "Interior design AI workflow: 39-chapter handbook, 19 styles, 8 space types, 5 skills, 5 commands, 2 agents, 80 MCP tools",
+      "version": "2.5.0+fork.1",
+      "source": "./",
+      "author": {
+        "name": "MickeyBadBad",
+        "url": "https://github.com/MickeyBadBad"
+      }
+    }
+  ]
+}

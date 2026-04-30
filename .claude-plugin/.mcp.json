@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "atelier": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": ["atelier-mcp"]
+    }
+  }
+}
