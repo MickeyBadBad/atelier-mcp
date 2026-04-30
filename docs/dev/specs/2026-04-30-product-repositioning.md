@@ -76,7 +76,7 @@ The PyPI distribution stays — the plugin uses the PyPI MCP server. The plugin 
 ### E. Identity
 
 - Add to README: "Why Atelier vs the official Anthropic Blender connector" section. Should be short (5-6 bullets), neutral in tone, and link to both docs.
-- GitHub repo: rename `MickeyBadBad/blender-mcp` → `MickeyBadBad/atelier-mcp` via `gh repo rename`. GitHub auto-redirects old URLs.
+- GitHub repo: rename `MickeyBadBad/atelier-mcp` → `MickeyBadBad/atelier-mcp` via `gh repo rename`. GitHub auto-redirects old URLs.
 - Update install URLs across README, INSTALL_AI.md, install.sh
 - GitHub repo description + topics — refresh to match the new positioning (interior-design, AI-assistant, Blender-MCP, claude-plugin)
 

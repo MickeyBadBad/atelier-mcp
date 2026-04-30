@@ -6,6 +6,95 @@ This is an actively maintained community fork of [ahujasid/blender-mcp](https://
 
 ---
 
+## [2.5.0+fork.1] — 2026-04-30
+
+**Product repositioning: from "Blender MCP server with design tools" to "AI interior design workflow toolkit (with Blender MCP as one component)".**
+
+The five A→E passes the user signed off on:
+
+### A — Reach: Atelier CLI
+
+Added a top-level `atelier` CLI so users without Claude Desktop / Cursor / Codex / VS Code can drive the workflow from the terminal. Subcommands wrap the same pure-Python modules the MCP server uses, so feature parity is automatic.
+
+- `atelier init <name> --type <project_type> --spaces ...`
+- `atelier discover [--depth quick|standard|deep|adaptive]` — interactive 25-question questionnaire
+- `atelier audit <scene_info_json> [--mode hero|exploration|construction]`
+- `atelier bom <project_root> [--format markdown|csv]`
+- `atelier moodboard <project_root> [--style <slug>] [-n 4]`
+- `atelier handbook [<chapter>] [--query <q>]`
+- `atelier styles`
+
+New entry point in `pyproject.toml [project.scripts]`: `atelier = "atelier.cli:main"` alongside the existing `atelier-mcp` and legacy `blender-mcp`.
+
+`tests/test_cli.py` — 15 smoke tests. **250 tests passing** (235 → 250).
+
+### B — Tone: README rebrand
+
+Top-of-README rewritten to read as a design product, not a developer library. New structure:
+
+- "🪞 Atelier" title + tagline ("The AI designer for people who don't know design")
+- Concrete usage scenario (Tokyo-tea-house apartment example)
+- 🎯 Who it's for — homeowners, small-business owners, "I know what I like but can't articulate it"
+- 🧰 What's in the box (table) — handbook, skills, CLI, MCP, gates, procurement listed as PEER surfaces
+- 🚀 Pick your flavor — three install routes shown as equally first-class
+- 🆚 vs the official connector — explicit comparison + capability table
+
+The deeper "About this fork" + upstream-improvements table preserved further down.
+
+### C — Scope: docs reorg
+
+- New `docs/OVERVIEW.md` — 5-layer product intro for non-technical readers; walks through a typical session.
+- New `docs/ARCHITECTURE.md` — for developers / extenders. Repository layout, layer responsibilities, key invariants, where to extend.
+- Renamed `docs/superpowers/` → `docs/dev/` (avoids confusion with the unrelated SuperPowers plugin; "dev" is honest about what it is). 13 files' internal cross-references updated.
+- Result: `docs/` now reads top-down as `OVERVIEW.md` (non-technical) → `ARCHITECTURE.md` (technical) → `handbook/` (the design knowledge — the product) → `dev/` (specs + plans + test plan, internal).
+
+### D — Distribution: Claude plugin format
+
+Added the canonical Anthropic plugin layout (observed from cached SuperPowers + code-review plugins):
+
+- `.claude-plugin/plugin.json` — plugin manifest (name=atelier, v2.5.0+fork.1, keywords for marketplace search)
+- `.claude-plugin/marketplace.json` — optional marketplace listing
+- `.claude-plugin/.mcp.json` — declares the MCP server (`atelier-mcp` via `uvx`)
+- `skills/` (top-level, mirrors `.claude/skills/`) — 5 trigger-based skills
+- `commands/` (NEW) — 5 slash commands:
+  - `/atelier-start` — discovery + project scaffold
+  - `/atelier-style` — moodboard + lock palette
+  - `/atelier-edit` — plain-language scene edits with L1-L4 cost classification
+  - `/atelier-render` — render with 9-dim audit; refuses 🔴 HARD failures
+  - `/atelier-handoff` — STRICT-mode audit + final renders + BoM + finish schedule
+- `agents/` (NEW) — 2 specialized subagents:
+  - `interior-designer` — opinionated practitioner that loads handbook + locked style at task start
+  - `style-historian` — focused design-writing voice with WebFetch citations; refuses generic style lore
+
+The PyPI `atelier-mcp` distribution stays — the plugin uses it as its MCP server. Plugin layer adds skills + commands + agents on top.
+
+### E — Identity: vs-official-connector + GitHub repo rename
+
+- README now has a detailed comparison table vs the official Anthropic Blender connector. Concrete tool-surface deltas, when to pick which, multi-install caveats.
+- **GitHub repo renamed**: `MickeyBadBad/blender-mcp` → **`MickeyBadBad/atelier-mcp`**. GitHub auto-redirects old URLs.
+- Repo description + topics updated.
+- Internal URLs across 9 files updated (README, install.sh, pyproject.toml, addon.py, INSTALL_AI.md, plugin.json, plus docs).
+
+### Versions bumped
+
+- `pyproject.toml` `version` → 2.5.0+fork.1
+- `addon.py` `bl_info["version"]` → (2, 5, 0)
+
+### Statistics
+
+- **MCP tools**: 80 (unchanged from v2.4)
+- **Tests**: 250 (was 235; +15 from CLI coverage)
+- **CLI subcommands**: 7 (init, discover, audit, bom, moodboard, handbook, styles)
+- **Slash commands**: 5
+- **Specialized agents**: 2
+- **Claude skills**: 5 (5 from v2.3, mirrored to top-level `skills/`)
+
+### Migration
+
+Zero work required for existing users. The legacy `blender-mcp` CLI alias still resolves; the GitHub URL redirects; the MCP server name `atelier` was already set in v2.4. New users following the README pick whichever install path fits.
+
+---
+
 ## [2.4.0+fork.1] — 2026-04-30
 
 **Project rename: `blender-mcp` → `atelier-mcp`.**

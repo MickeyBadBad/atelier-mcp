@@ -8,7 +8,7 @@ This document is written for an **AI agent** (Claude Code, Cursor, Codex, etc.) 
 
 ## For users — copy-paste this prompt
 
-> Help me install [blender-mcp](https://github.com/MickeyBadBad/blender-mcp). Follow the [INSTALL_AI.md](https://github.com/MickeyBadBad/blender-mcp/blob/develop/INSTALL_AI.md) playbook on the develop branch — run each step, diagnose failures, and report status before moving on. My OS is **{macOS / Linux / Windows}**. My AI client is **{Claude Code / Cursor / Claude Desktop / VS Code Copilot / OpenAI Codex}**.
+> Help me install [blender-mcp](https://github.com/MickeyBadBad/atelier-mcp). Follow the [INSTALL_AI.md](https://github.com/MickeyBadBad/atelier-mcp/blob/develop/INSTALL_AI.md) playbook on the develop branch — run each step, diagnose failures, and report status before moving on. My OS is **{macOS / Linux / Windows}**. My AI client is **{Claude Code / Cursor / Claude Desktop / VS Code Copilot / OpenAI Codex}**.
 
 That's it. The AI will handle the rest.
 
@@ -16,7 +16,7 @@ That's it. The AI will handle the rest.
 
 ## For AI agents — playbook
 
-You are helping a user install `blender-mcp` (the actively-maintained fork at `MickeyBadBad/blender-mcp`). Walk through these steps **in order** and **diagnose** at each step before continuing.
+You are helping a user install `blender-mcp` (the actively-maintained fork at `MickeyBadBad/atelier-mcp`). Walk through these steps **in order** and **diagnose** at each step before continuing.
 
 ### Step 0 — Survey the user's environment
 
@@ -64,7 +64,7 @@ INSTALL_DIR="$HOME/.blender-mcp-fork"
 if [ -d "$INSTALL_DIR/.git" ]; then
     git -C "$INSTALL_DIR" pull --ff-only origin develop
 else
-    git clone --branch develop --depth 1 https://github.com/MickeyBadBad/blender-mcp.git "$INSTALL_DIR"
+    git clone --branch develop --depth 1 https://github.com/MickeyBadBad/atelier-mcp.git "$INSTALL_DIR"
 fi
 cd "$INSTALL_DIR" && uv sync
 ```

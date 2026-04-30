@@ -23,7 +23,7 @@ from contextlib import redirect_stdout, suppress
 bl_info = {
     "name": "Atelier (Blender MCP)",
     "author": "Atelier MCP / BlenderMCP",
-    "version": (2, 4, 0),
+    "version": (2, 5, 0),
     "blender": (3, 0, 0),
     "location": "View3D > Sidebar > BlenderMCP",
     "description": "Atelier — interior-design-focused MCP server for Blender. Compatible with Claude Desktop, Cursor, Codex, and other MCP clients.",
@@ -7139,9 +7139,9 @@ class BLENDERMCP_PT_Panel(bpy.types.Panel):
         # ============== Help footer ==============
         help_row = layout.row(align=True)
         help_op = help_row.operator("wm.url_open", text="Docs", icon='HELP')
-        help_op.url = "https://github.com/MickeyBadBad/blender-mcp"
+        help_op.url = "https://github.com/MickeyBadBad/atelier-mcp"
         help_op2 = help_row.operator("wm.url_open", text="Issues", icon='ERROR')
-        help_op2.url = "https://github.com/MickeyBadBad/blender-mcp/issues"
+        help_op2.url = "https://github.com/MickeyBadBad/atelier-mcp/issues"
 
         # (Old flat layout removed — server controls now live in the
         # server_box at the top of the panel.)

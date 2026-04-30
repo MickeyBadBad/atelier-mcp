@@ -96,6 +96,48 @@ See the full [CHANGELOG](./CHANGELOG.md) for a per-commit breakdown.
 
 ---
 
+## 🆚 vs the official Anthropic Blender connector — detail
+
+On 2026-04-28 Anthropic announced a **Claude × Blender connector** as part of "Claude for Creative Work". That connector is fundamentally `ahujasid/blender-mcp` v1.4.0 (the same upstream this project forked from) packaged into Claude Desktop's connector marketplace + officially curated by Blender Lab. Both projects use the open MCP standard, so both work with any MCP client.
+
+Atelier and the official connector are **complementary**. Pick what fits the job:
+
+| If you are... | You probably want |
+|---|---|
+| A Blender artist who wants natural-language access to the Python API for batch ops, debugging, custom scripts | **The official connector** — simpler, blessed, one-click in Claude Desktop |
+| A non-designer designing a real space, who needs the AI to bring design judgment + handbook citations + quality gates + a contractor-ready BoM | **Atelier** |
+| Someone using Cursor / VS Code / Codex (no Claude Desktop) | **Either** — both are MCP-standard |
+| Someone who'd never install Blender but wants the workflow | **Atelier's CLI** — `pip install atelier-mcp; atelier discover` |
+
+Concrete differences in tool surface (this is current as of v2.5.0+fork.1):
+
+| Capability | Official | Atelier |
+|---|---|---|
+| Total MCP tools | ~30 (upstream v1.4.0) | **80** |
+| `execute_blender_code` arbitrary Python | ✅ | ✅ |
+| PolyHaven / Sketchfab / Hyper3D / Hunyuan3D | ✅ | ✅ |
+| **AmbientCG** (CC0, ~2000 PBR materials) | ❌ | ✅ |
+| **Tripo3D, Meshy.ai** (AI text-to-3D) | ❌ | ✅ |
+| **OpenAI / Codex CLI image gen** | ❌ | ✅ |
+| `apply_archviz_material` (14 genres) | ❌ | ✅ |
+| `place_on_ground` / `verify_object_grounded` | ❌ | ✅ |
+| `setup_lighting` / `frame_camera_to_objects` | ❌ | ✅ |
+| `scatter_on_surface` / `array_duplicate` / `curve_extrude_profile` | ❌ | ✅ |
+| **39-chapter sourced + cited design handbook** | ❌ | ✅ |
+| **`read_design_handbook` runtime tool** | ❌ | ✅ |
+| **Discovery questionnaire (5 question types, 25 questions)** | ❌ | ✅ |
+| **9-dimension quality gates with handbook citations** | ❌ | ✅ |
+| **Procurement / SKU parser / BoM (1688 / Taobao / JD)** | ❌ | ✅ |
+| **Moodboard prompt builder + style-aware furniture placement** | ❌ | ✅ |
+| **5 Claude skills + 5 commands + 2 specialized agents** | ❌ | ✅ |
+| **Standalone CLI (works without Claude/Cursor)** | ❌ | ✅ |
+| **Telemetry default opt-in** | ❌ (default on) | ✅ |
+| Curated by Blender Foundation + 1-click Claude Desktop install | ✅ | ❌ (yet) |
+
+**Both can be installed simultaneously** — they use different MCP server names (`blender` vs `atelier`). Just don't try to connect both to the same Blender session at the same time (the addon socket only accepts one client).
+
+---
+
 ## ✨ What's underneath
 
 Atelier is composed of four layers — each useful on its own:
@@ -114,14 +156,14 @@ Atelier is composed of four layers — each useful on its own:
 ### 🪄 The one-liner (macOS / Linux)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/MickeyBadBad/blender-mcp/develop/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/MickeyBadBad/atelier-mcp/develop/install.sh | bash
 ```
 
 This installs `uv` if missing, clones the fork to `~/.blender-mcp-fork`, runs `uv sync`, registers the MCP server with Claude Code (or prints the JSON snippet for Cursor / Claude Desktop / VS Code), and copies `addon.py` to your Blender user-scripts directory if Blender's installed. You finish by enabling the addon inside Blender + clicking **Connect to Claude**.
 
 > **Want your AI assistant to do it for you?** Just paste this into Claude Code / Cursor / Codex:
 >
-> > Help me install [blender-mcp](https://github.com/MickeyBadBad/blender-mcp). Follow the [INSTALL_AI.md](https://github.com/MickeyBadBad/blender-mcp/blob/develop/INSTALL_AI.md) playbook on the develop branch — run each step, diagnose failures, and report status before moving on. My OS is **macOS / Linux / Windows**. My AI client is **Claude Code / Cursor / Claude Desktop / VS Code Copilot / Codex**.
+> > Help me install [blender-mcp](https://github.com/MickeyBadBad/atelier-mcp). Follow the [INSTALL_AI.md](https://github.com/MickeyBadBad/atelier-mcp/blob/develop/INSTALL_AI.md) playbook on the develop branch — run each step, diagnose failures, and report status before moving on. My OS is **macOS / Linux / Windows**. My AI client is **Claude Code / Cursor / Claude Desktop / VS Code Copilot / Codex**.
 >
 > The agent runs the diagnostic checklist, installs missing pieces, and tells you what manual steps remain. See [INSTALL_AI.md](./INSTALL_AI.md) for the full playbook.
 
@@ -168,7 +210,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 Pick one (or more — but **only run one at a time** to avoid port conflicts on `9876`).
 
-> 🍴 **Using this fork?** Replace `uvx atelier-mcp` with `uvx --from git+https://github.com/MickeyBadBad/blender-mcp@develop blender-mcp` in any of the snippets below to install directly from this repository instead of the upstream PyPI package. Once we publish the fork to PyPI as `blender-mcp-fork`, the snippets here will be updated.
+> 🍴 **Using this fork?** Replace `uvx atelier-mcp` with `uvx --from git+https://github.com/MickeyBadBad/atelier-mcp@develop blender-mcp` in any of the snippets below to install directly from this repository instead of the upstream PyPI package. Once we publish the fork to PyPI as `blender-mcp-fork`, the snippets here will be updated.
 
 <details open>
 <summary><b>Claude Code (CLI)</b></summary>

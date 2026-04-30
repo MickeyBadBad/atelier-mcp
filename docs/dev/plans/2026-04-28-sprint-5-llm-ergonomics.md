@@ -1490,7 +1490,7 @@ git checkout develop
 git pull
 git tag -a v2.0.0-fork.1 -m "v2.0.0+fork.1 — LLM ergonomics: envelope, naming, OpenAI-compat, telemetry opt-in"
 git push fork v2.0.0-fork.1
-gh release create v2.0.0-fork.1 --repo MickeyBadBad/blender-mcp \
+gh release create v2.0.0-fork.1 --repo MickeyBadBad/atelier-mcp \
   --title "v2.0.0+fork.1 — Sprint 5: LLM ergonomics" \
   --notes-file <(awk '/## \[2.0.0/,/^## \[1.10.2/' CHANGELOG.md | head -n -1)
 ```
@@ -1615,7 +1615,7 @@ gh pr merge --squash --delete-branch
 git checkout develop && git pull
 git tag -a v2.0.0-fork.1 -m "v2.0.0+fork.1 — Sprint 5: LLM ergonomics (BC-break)"
 git push fork v2.0.0-fork.1
-gh release create v2.0.0-fork.1 --repo MickeyBadBad/blender-mcp \
+gh release create v2.0.0-fork.1 --repo MickeyBadBad/atelier-mcp \
   --title "v2.0.0+fork.1 — Sprint 5: LLM ergonomics" \
   --notes-file <(awk '/## \[2.0.0/,/^## \[1.10.2/' CHANGELOG.md | head -n -1)
 ```

@@ -2602,7 +2602,7 @@ git commit -m "docs: CHANGELOG [2.2.0+fork.1] — quality-of-life additions"
 ```bash
 git push fork sprint-6-quality-of-life
 gh pr create --base develop --head sprint-6-quality-of-life \
-  --repo MickeyBadBad/blender-mcp \
+  --repo MickeyBadBad/atelier-mcp \
   --title "Sprint 6 — Quality of Life (v2.2.0+fork.1)" \
   --body "$(cat <<'EOF'
 ## Summary
@@ -2642,7 +2642,7 @@ git push fork v2.2.0-fork.1
 
 awk '/^## \[2.2.0\+fork.1\]/,/^## \[2.0.2\+fork.1\]/' CHANGELOG.md | sed '$d' > /tmp/v220_release_notes.md
 gh release create v2.2.0-fork.1 \
-  --repo MickeyBadBad/blender-mcp \
+  --repo MickeyBadBad/atelier-mcp \
   --title "v2.2.0+fork.1 — Sprint 6: Quality of Life" \
   --notes-file /tmp/v220_release_notes.md
 ```

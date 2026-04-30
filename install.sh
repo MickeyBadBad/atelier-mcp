@@ -2,7 +2,7 @@
 # blender-mcp fork installer (macOS / Linux)
 #
 # One-liner usage:
-#   curl -fsSL https://raw.githubusercontent.com/MickeyBadBad/blender-mcp/develop/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/MickeyBadBad/atelier-mcp/develop/install.sh | bash
 #
 # What it does:
 #   1. Installs uv if missing
@@ -23,7 +23,7 @@ warn()  { printf "${YELLOW}[blender-mcp]${NC} %s\n" "$*" >&2; }
 err()   { printf "${RED}[blender-mcp]${NC} %s\n" "$*" >&2; exit 1; }
 step()  { printf "${BOLD}\n→ %s${NC}\n" "$*"; }
 
-REPO_URL="${BLENDERMCP_REPO_URL:-https://github.com/MickeyBadBad/blender-mcp.git}"
+REPO_URL="${BLENDERMCP_REPO_URL:-https://github.com/MickeyBadBad/atelier-mcp.git}"
 REPO_BRANCH="${BLENDERMCP_REPO_BRANCH:-develop}"
 INSTALL_DIR="${BLENDERMCP_INSTALL_DIR:-$HOME/.blender-mcp-fork}"
 
@@ -175,7 +175,7 @@ cat <<EOF
 
   Configured for: ${configured_client:-manual}
   Repo:           $INSTALL_DIR (branch: $REPO_BRANCH)
-  Docs:           https://github.com/MickeyBadBad/blender-mcp
+  Docs:           https://github.com/MickeyBadBad/atelier-mcp
 
 EOF
 log "Done."
