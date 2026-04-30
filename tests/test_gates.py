@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from blender_mcp._gates import (
+from atelier._gates import (
     Finding,
     Severity,
     StrictnessMode,

@@ -1,7 +1,7 @@
 [project]
-name = "blender-mcp"
-version = "2.3.0+fork.1"
-description = "Drive Blender 4.x/5.x with Claude AI, Cursor, and other MCP clients — actively maintained fork with PBR textures, Sketchfab/PolyHaven/Hyper3D integration, and design-workflow tools"
+name = "atelier-mcp"
+version = "2.4.0+fork.1"
+description = "Atelier — interior-design-focused MCP server for Blender. Handbook-grounded AI workflow (discovery questionnaire, citation-backed quality gates, procurement / BoM, moodboard, style-aware furniture). Compatible with Claude Desktop, Cursor, Codex, and any MCP client."
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [
@@ -58,7 +58,10 @@ dev = [
 ]
 
 [project.scripts]
-blender-mcp = "blender_mcp.server:main"
+atelier-mcp = "atelier.server:main"
+# Backward-compat alias so existing claude_desktop_config.json files
+# pointing at `blender-mcp` keep working through the 2.4 transition.
+blender-mcp = "atelier.server:main"
 
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]

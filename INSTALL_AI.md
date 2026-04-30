@@ -1,6 +1,8 @@
-# Install via AI assistant
+# Install Atelier MCP via AI assistant
 
-This document is written for an **AI agent** (Claude Code, Cursor, Codex, etc.) to walk a user through installing blender-mcp end-to-end. The user just pastes one prompt; the AI does the rest.
+> Renamed from `blender-mcp` v2.3.0 → `atelier-mcp` v2.4.0 on 2026-04-30. CLI command is now `atelier-mcp`. Legacy alias `blender-mcp` still resolves through 2.4. The **BlenderMCP** sidebar tab inside Blender keeps its name (it's the addon's UI label, not the package name).
+
+This document is written for an **AI agent** (Claude Code, Cursor, Codex, etc.) to walk a user through installing Atelier MCP end-to-end. The user just pastes one prompt; the AI does the rest.
 
 ---
 
@@ -89,7 +91,7 @@ claude mcp list | grep blender
   "mcpServers": {
     "blender": {
       "command": "uv",
-      "args": ["--directory", "<INSTALL_DIR>", "run", "blender-mcp"],
+      "args": ["--directory", "<INSTALL_DIR>", "run", "atelier-mcp"],
       "env": {"DISABLE_TELEMETRY": "true"}
     }
   }
@@ -196,7 +198,7 @@ For each failing row, show the user a single specific fix — don't dump the who
 | `Could not connect to Blender` after Blender restart | Addon disables auto-start | Re-click **Connect to Claude** every Blender session |
 | `Node type ShaderNodeSeparateRGB undefined` | Stale upstream addon — Blender 4.x removed the node | Already fixed in this fork; re-copy `addon.py` to Blender's addon dir and reload addon |
 | `IncompleteRead` from Sketchfab | CDN flaky | Already fixed in this fork (retry + Range-resume) — just retry the call |
-| `MCP server initialization timeout` (Claude Desktop) | First-run uvx download exceeds 60s timeout | `uv tool install blender-mcp` once, then restart client |
+| `MCP server initialization timeout` (Claude Desktop) | First-run uvx download exceeds 60s timeout | `uv tool install atelier-mcp` once, then restart client |
 | Sketchfab token disappears after Blender restart | Upstream stored in scene props | Already fixed in this fork (persistent prefs) |
 | `Module not found: blender_mcp` | uv venv path wrong | `cd $INSTALL_DIR && uv sync` then restart AI client |
 

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from blender_mcp._project import (
+from atelier._project import (
     PROJECT_TYPES,
     ProjectError,
     new_project_record,

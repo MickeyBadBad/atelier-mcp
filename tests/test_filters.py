@@ -1,5 +1,5 @@
 """Sprint 6 — response slimming filter tests."""
-from blender_mcp._filters import slim_sketchfab, slim_polyhaven
+from atelier._filters import slim_sketchfab, slim_polyhaven
 
 
 def test_slim_sketchfab_keeps_essential_fields():

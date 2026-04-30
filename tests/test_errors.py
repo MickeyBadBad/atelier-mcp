@@ -1,5 +1,5 @@
 import socket
-from blender_mcp._errors import _format_error
+from atelier._errors import _format_error
 
 
 def test_connection_refused_maps_to_state_required():

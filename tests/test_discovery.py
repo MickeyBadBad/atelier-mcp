@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from blender_mcp._discovery import (
+from atelier._discovery import (
     AXES,
     Depth,
     DiscoveryError,

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from blender_mcp._procurement import (
+from atelier._procurement import (
     PROCUREMENT_CATEGORIES,
     PROCUREMENT_VENDORS,
     ProcurementError,

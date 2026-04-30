@@ -21,12 +21,12 @@ import os.path as osp
 from contextlib import redirect_stdout, suppress
 
 bl_info = {
-    "name": "Blender MCP",
-    "author": "BlenderMCP",
-    "version": (2, 3, 0),
+    "name": "Atelier (Blender MCP)",
+    "author": "Atelier MCP / BlenderMCP",
+    "version": (2, 4, 0),
     "blender": (3, 0, 0),
     "location": "View3D > Sidebar > BlenderMCP",
-    "description": "Connect Blender to Claude via MCP",
+    "description": "Atelier — interior-design-focused MCP server for Blender. Compatible with Claude Desktop, Cursor, Codex, and other MCP clients.",
     "category": "Interface",
 }
 
@@ -77,7 +77,7 @@ def _usage_increment(service_key, cost):
 
 # Add User-Agent as required by Poly Haven API
 REQ_HEADERS = requests.utils.default_headers()
-REQ_HEADERS.update({"User-Agent": "blender-mcp"})
+REQ_HEADERS.update({"User-Agent": "atelier-mcp"})
 
 
 # --------------------------------------------------------------------------

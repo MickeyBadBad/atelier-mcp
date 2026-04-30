@@ -6,6 +6,85 @@ This is an actively maintained community fork of [ahujasid/blender-mcp](https://
 
 ---
 
+## [2.4.0+fork.1] — 2026-04-30
+
+**Project rename: `blender-mcp` → `atelier-mcp`.**
+
+### Why
+
+Anthropic announced an official Blender connector on 2026-04-28 (effectively `ahujasid/blender-mcp` v1.4.0 packaged into Claude Desktop's connector marketplace). To avoid name collision and to better reflect what this fork actually is — a **handbook-grounded, citation-backed interior-design workflow built on top of a Blender MCP** — the project is renamed.
+
+"Atelier" (an artist's / designer's workshop) maps cleanly onto the product positioning: the AI is the designer, the user provides direction + taste, the workshop is Blender + the handbook + the quality gates.
+
+### Renamed
+
+- **PyPI package**: `blender-mcp` → **`atelier-mcp`**
+- **CLI entry point**: `blender-mcp` → **`atelier-mcp`** (legacy alias `blender-mcp` still works through 2.4 for backward compat)
+- **Python module**: `src/blender_mcp/` → **`src/atelier/`**, all imports updated (`from atelier._handbook import ...`)
+- **MCP server name** (FastMCP): `BlenderMCP` → **`Atelier`**
+- **Blender addon `bl_info.name`**: `Blender MCP` → **`Atelier (Blender MCP)`** (parenthesized retain-name keeps existing search hits working)
+- **HTTP `User-Agent`**: `blender-mcp` → **`atelier-mcp`**
+- **Project root `.mcp.json`**: server name `blender` → **`atelier`**, command `blender-mcp` → `atelier-mcp`
+
+### Preserved (BC-critical)
+
+- **Addon class name** `BlenderMCPServer` — referenced by `bpy.types` registration, renaming would break existing scenes
+- **Scene properties** `blendermcp_*` (API keys, panel toggles) — persisted in `.blend` files, renaming would break user state
+- **N-panel sidebar tab name** `BlenderMCP` — UI label, kept for muscle-memory continuity
+- **Upstream attribution** — `ahujasid/blender-mcp` references kept everywhere they describe project history
+
+### Migration
+
+For most users: zero work — the legacy `blender-mcp` CLI alias still resolves. For new installs: use `atelier-mcp` everywhere.
+
+```diff
+ {
+   "mcpServers": {
+-    "blender": {
++    "atelier": {
+       "type": "stdio",
+       "command": "uvx",
+-      "args": ["blender-mcp"]
++      "args": ["atelier-mcp"]
+     }
+   }
+ }
+```
+
+The addon stays the same `addon.py` file — re-install it (Edit → Preferences → Add-ons → Install) and you'll see "Atelier (Blender MCP)" in the addon list. The N-panel sidebar tab stays labeled BlenderMCP (so Connect to Claude muscle memory still works).
+
+### Other changes in this release
+
+#### Slice 6 — Moodboard + style-aware furniture + live SKU fetch
+
+- **`src/atelier/_style_vocab.py`** — parses `docs/handbook/styles/<slug>.md` into a structured `StyleVocab` (palette, materials_in/out, kelvin_range, fixture/prop keywords, reference_projects). Section-walking now correctly respects markdown heading hierarchy.
+- **`src/atelier/_moodboard.py`** — `build_moodboard_prompts(taste_profile, style_vocab, n, space_type)` produces N distinct image-gen prompts that cite palette hex, material vocabulary, Kelvin range, and the style chapter slug.
+- **4 new MCP tools**:
+  - `generate_moodboard_candidates(project_root, style_slug, space_type, n)` — returns prompts for the AI client to feed into existing image-gen tools.
+  - `lock_moodboard(project_root, style_slug, selected_image_paths, palette_override)` — writes the four `locked_*` fields into taste-profile.json, auto-snapshots before writing.
+  - `place_furniture_from_style(style_slug, furniture_category, target_zone_object)` — returns a structured 2-3 step Sketchfab search + place plan.
+  - `extract_sku_from_url(url, page_html, category_hint)` — two-step flow for claude-in-chrome integration.
+
+#### Slice 8 — Native addon commands + E2E smoke test
+
+- **2 new addon socket commands**:
+  - `interior_audit_scan` — walks `bpy.data.objects/lights/cameras` + scene render settings, returns audit-shaped scene_info dict.
+  - `interior_project_scaffold` — creates 11 standard collections + per-space sub-collections under 03_ZONES, sets metric meter units. Idempotent.
+- **2 new MCP tools wrapping the native commands**:
+  - `audit_interior_quality_native(mode, project_root)` — one-shot audit (no separate `get_scene_info` call needed).
+  - `create_interior_project_native(project_name, project_type, spaces)` — composes filesystem-side `create_interior_project` with addon-side scaffold.
+- **`tests/test_e2e_workflow.py`** — full pure-Python smoke test (discovery → project → moodboard → procurement → audit → BoM → snapshot).
+- **`docs/superpowers/specs/2026-04-30-test-plan.md`** — 4-layer test plan (pure-Python / MCP boot / MCP+Blender / full workflow).
+
+### Statistics
+
+- **Total MCP tools**: **80** (was 74)
+- **Total tests**: **235** (was 205)
+- **New pure-Python modules**: `_style_vocab`, `_moodboard`
+- **New addon commands**: `interior_audit_scan`, `interior_project_scaffold`
+
+---
+
 ## [2.3.0+fork.1] — 2026-04-30
 
 The Interior Design Workflow release. Five implementation slices land an end-to-end design pipeline on top of the v2.2.0 quality-of-life base: from a non-designer's first contact with the system, through Discovery questionnaire → moodboard lock → Blender scaffold → quality-gated render → SKU-tracked procurement → BoM. **The user gives rough direction and like/dislike feedback; the AI carries professional design knowledge and operates Blender.**

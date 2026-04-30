@@ -3,13 +3,13 @@ from __future__ import annotations
 
 import pytest
 
-from blender_mcp._moodboard import (
+from atelier._moodboard import (
     MoodboardError,
     build_moodboard_prompts,
     moodboard_dir,
 )
-from blender_mcp._project import write_taste_profile
-from blender_mcp._style_vocab import parse_style_chapter
+from atelier._project import write_taste_profile
+from atelier._style_vocab import parse_style_chapter
 
 
 def _profile_with_style(style):

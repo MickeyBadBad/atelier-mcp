@@ -14,7 +14,7 @@ import re
 
 import pytest
 
-from blender_mcp._handbook import list_chapters, read_chapter
+from atelier._handbook import list_chapters, read_chapter
 
 # A "numeric claim line" is a markdown line containing a number followed
 # by a unit (mm, cm, m, K, lx, lux, %, dB, etc.) or a temperature K range.

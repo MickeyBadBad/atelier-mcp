@@ -3,7 +3,7 @@ server.py @mcp.tool() definitions or addon.py dispatcher entries."""
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-SERVER = (REPO / "src" / "blender_mcp" / "server.py").read_text()
+SERVER = (REPO / "src" / "atelier" / "server.py").read_text()
 ADDON = (REPO / "addon.py").read_text()
 
 LEGACY_NAMES = [

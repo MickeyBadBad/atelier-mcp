@@ -27,7 +27,7 @@ def test_full_workflow_smoke(tmp_path):
     proj_root.mkdir()
 
     # ----- Stage 0: Discovery -----
-    from blender_mcp._discovery import (
+    from atelier._discovery import (
         Depth,
         list_questions,
         new_session,
@@ -58,11 +58,11 @@ def test_full_workflow_smoke(tmp_path):
     assert profile["recommended_style"]
 
     # Persist taste profile
-    from blender_mcp._project import write_taste_profile
+    from atelier._project import write_taste_profile
     write_taste_profile(proj_root / "taste-profile.json", profile)
 
     # ----- Stage 1-2: Project scaffolding (pure-Python side) -----
-    from blender_mcp._project import (
+    from atelier._project import (
         STANDARD_COLLECTIONS, new_project_record, write_project,
     )
 
@@ -76,12 +76,12 @@ def test_full_workflow_smoke(tmp_path):
     assert len(STANDARD_COLLECTIONS) == 11
 
     # ----- Stage 2.5: Moodboard prompts -----
-    from blender_mcp._moodboard import build_moodboard_prompts
-    from blender_mcp._style_vocab import parse_style_chapter
+    from atelier._moodboard import build_moodboard_prompts
+    from atelier._style_vocab import parse_style_chapter
 
     # Use a known-existing style; recommended_style might be any of the 19.
     # Pick whichever is in the recommended list and has a chapter.
-    from blender_mcp._style_vocab import available_styles
+    from atelier._style_vocab import available_styles
     available = available_styles()
     # Convert recommended_style underscore form → handbook hyphen form
     recommended_slug = profile["recommended_style"].replace("_", "-")
@@ -98,7 +98,7 @@ def test_full_workflow_smoke(tmp_path):
         assert recommended_slug in prompt or recommended_slug.replace("-", " ") in prompt
 
     # ----- Stage 4.5: Procurement -----
-    from blender_mcp._procurement import (
+    from atelier._procurement import (
         list_purchases,
         record_purchase,
     )
@@ -124,7 +124,7 @@ def test_full_workflow_smoke(tmp_path):
     assert len(list_purchases(proj_root)) == 2
 
     # ----- Stage 5: Audit (mock scene_info) -----
-    from blender_mcp._gates import StrictnessMode, run_audit
+    from atelier._gates import StrictnessMode, run_audit
 
     mock_scene_info = {
         "objects": [
@@ -166,7 +166,7 @@ def test_full_workflow_smoke(tmp_path):
     )
 
     # ----- Stage 6.5: BoM generation -----
-    from blender_mcp._bom import (
+    from atelier._bom import (
         bom_summary, collect_bom_rows, render_bom_markdown,
     )
 
@@ -183,7 +183,7 @@ def test_full_workflow_smoke(tmp_path):
     assert summary["item_count"] == 2
 
     # ----- Stage F: Version snapshot -----
-    from blender_mcp._snapshots import snapshot_create, snapshot_list
+    from atelier._snapshots import snapshot_create, snapshot_list
 
     snap = snapshot_create(
         proj_root,
@@ -203,7 +203,7 @@ def test_full_workflow_smoke(tmp_path):
 def test_gates_emit_handbook_citations():
     """When a gate fires, the Finding's citation should reference a real
     handbook chapter (string) — not be empty."""
-    from blender_mcp._gates import StrictnessMode, run_audit
+    from atelier._gates import StrictnessMode, run_audit
 
     # Build a scene that violates several gates
     bad_scene = {
@@ -244,8 +244,8 @@ def test_gates_emit_handbook_citations():
 def test_styles_in_discovery_have_handbook_chapters():
     """Every style in STYLE_VECTORS should have a corresponding
     handbook chapter."""
-    from blender_mcp._discovery import STYLE_VECTORS
-    from blender_mcp._style_vocab import available_styles
+    from atelier._discovery import STYLE_VECTORS
+    from atelier._style_vocab import available_styles
 
     available = set(available_styles())
     missing = []

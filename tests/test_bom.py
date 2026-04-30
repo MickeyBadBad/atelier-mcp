@@ -3,14 +3,14 @@ from __future__ import annotations
 
 import pytest
 
-from blender_mcp._bom import (
+from atelier._bom import (
     bom_summary,
     collect_bom_rows,
     render_bom_csv,
     render_bom_markdown,
 )
-from blender_mcp._procurement import record_purchase
-from blender_mcp._project import write_taste_profile
+from atelier._procurement import record_purchase
+from atelier._project import write_taste_profile
 
 
 def _setup_project(tmp_path):

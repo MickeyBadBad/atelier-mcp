@@ -1,4 +1,6 @@
-# Conventions for AI agents working ON the blender-mcp fork
+# Conventions for AI agents working ON the Atelier MCP fork
+
+> Renamed from `blender-mcp` v2.3.0 → `atelier-mcp` v2.4.0 on 2026-04-30. The Python module is now `atelier`; the CLI command is `atelier-mcp` (with `blender-mcp` as a backward-compat alias through 2.4). References to "blender-mcp" / "BlenderMCP" / `BlenderMCPServer` below refer to addon class names and upstream history — those stay intentionally for `bpy` registration BC.
 
 When extending the fork, follow these rules to keep the toolkit coherent.
 

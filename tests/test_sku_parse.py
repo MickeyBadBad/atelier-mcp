@@ -1,7 +1,7 @@
 """Tests for SKU metadata extraction."""
 from __future__ import annotations
 
-from blender_mcp._sku_parse import (
+from atelier._sku_parse import (
     detect_vendor,
     extract_image_url,
     extract_price_rmb,

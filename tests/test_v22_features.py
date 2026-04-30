@@ -344,12 +344,12 @@ def test_apply_glass_material_routes_to_addon(monkeypatch):
             captured["params"] = params
             return {"object_name": "Window_1", "material": "Glass_Window_1"}
 
-    if "blender_mcp.server" in sys.modules:
-        del sys.modules["blender_mcp.server"]
-    if "blender_mcp" in sys.modules:
-        del sys.modules["blender_mcp"]
+    if "atelier.server" in sys.modules:
+        del sys.modules["atelier.server"]
+    if "atelier" in sys.modules:
+        del sys.modules["atelier"]
 
-    from blender_mcp import server as srv_mod
+    from atelier import server as srv_mod
     srv_mod.get_blender_connection = lambda: FakeConn()
 
     # Unwrap decorator stack to call the underlying function with kwargs
@@ -379,8 +379,8 @@ def test_hyper3d_auto_import_polls_until_done_then_imports(monkeypatch):
     import sys, os, time
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-    if "blender_mcp.server" in sys.modules:
-        del sys.modules["blender_mcp.server"]
+    if "atelier.server" in sys.modules:
+        del sys.modules["atelier.server"]
 
     poll_state = {"i": 0}
     sequence = [
@@ -402,7 +402,7 @@ def test_hyper3d_auto_import_polls_until_done_then_imports(monkeypatch):
                 return {"succeed": True, "name": params["name"], "type": "MESH"}
             return {"error": f"unexpected cmd {cmd}"}
 
-    from blender_mcp import server as srv_mod
+    from atelier import server as srv_mod
     srv_mod.get_blender_connection = lambda: FakeConn()
     monkeypatch.setattr(time, "sleep", lambda s: None)  # don't actually wait
 
@@ -456,10 +456,10 @@ def test_zero_result_search_includes_query_help_hint(monkeypatch):
     Same for PolyHaven + ambientCG."""
     import sys, os
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    if "blender_mcp.server" in sys.modules:
-        del sys.modules["blender_mcp.server"]
+    if "atelier.server" in sys.modules:
+        del sys.modules["atelier.server"]
 
-    from blender_mcp._filters import attach_zero_result_hint
+    from atelier._filters import attach_zero_result_hint
 
     sketchfab_zero = {"results": []}
     out = attach_zero_result_hint(sketchfab_zero, service="sketchfab")

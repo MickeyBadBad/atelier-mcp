@@ -1,6 +1,10 @@
-# BlenderMCP — Control Blender with Claude AI, Cursor & MCP
+# Atelier — Interior-design MCP for Blender
 
-> **Drive Blender 4.x and 5.x from any MCP client** — Claude Code, Claude Desktop, Cursor, VS Code Copilot, Codex — using the [Model Context Protocol](https://modelcontextprotocol.io/). Build scenes, apply PBR materials, drop in Sketchfab/PolyHaven assets, generate AI 3D models with Hyper3D/Rodin, render with Cycles, all through natural-language prompts.
+> **Atelier** is an interior-design-focused MCP server for Blender. The AI plays the role of a designer (handbook-grounded, citation-backed) and the user supplies rough direction + like/dislike feedback. Comes with a 25-question discovery questionnaire, a 39-chapter handbook covering 19 styles + 8 space types, 9-dimension quality gates that refuse to render flat-looking scenes, procurement / BoM tooling for 1688 / Taobao / Sketchfab / PolyHaven, and the full ~80-tool Blender MCP toolkit underneath.
+>
+> Drives Blender 4.x and 5.x from any MCP client — Claude Code, Claude Desktop, Cursor, VS Code Copilot, Codex — via the [Model Context Protocol](https://modelcontextprotocol.io/).
+>
+> **Renamed from `blender-mcp` v2.3.0 → `atelier-mcp` v2.4.0** (2026-04-30) when the project's interior-design specialization outgrew the generic-Blender-MCP framing. The Python module is now `atelier`. Old `claude_desktop_config.json` entries pointing at `blender-mcp` keep working — we ship the alias for one minor version. See [`docs/superpowers/specs/2026-04-30-test-plan.md`](./docs/superpowers/specs/2026-04-30-test-plan.md) for migration notes.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
@@ -123,17 +127,17 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 Pick one (or more — but **only run one at a time** to avoid port conflicts on `9876`).
 
-> 🍴 **Using this fork?** Replace `uvx blender-mcp` with `uvx --from git+https://github.com/MickeyBadBad/blender-mcp@develop blender-mcp` in any of the snippets below to install directly from this repository instead of the upstream PyPI package. Once we publish the fork to PyPI as `blender-mcp-fork`, the snippets here will be updated.
+> 🍴 **Using this fork?** Replace `uvx atelier-mcp` with `uvx --from git+https://github.com/MickeyBadBad/blender-mcp@develop blender-mcp` in any of the snippets below to install directly from this repository instead of the upstream PyPI package. Once we publish the fork to PyPI as `blender-mcp-fork`, the snippets here will be updated.
 
 <details open>
 <summary><b>Claude Code (CLI)</b></summary>
 
 ```bash
 # Project-scoped (creates .mcp.json in current dir)
-claude mcp add -s project blender -- uvx blender-mcp
+claude mcp add -s project blender -- uvx atelier-mcp
 
 # Or user-scoped (available everywhere)
-claude mcp add -s user blender -- uvx blender-mcp
+claude mcp add -s user blender -- uvx atelier-mcp
 
 # Verify
 claude mcp list
@@ -150,7 +154,7 @@ Settings → Developer → Edit Config → `claude_desktop_config.json`:
   "mcpServers": {
     "blender": {
       "command": "uvx",
-      "args": ["blender-mcp"]
+      "args": ["atelier-mcp"]
     }
   }
 }
@@ -169,7 +173,7 @@ Or manually — **macOS/Linux**: Settings → MCP → Add new global MCP server,
   "mcpServers": {
     "blender": {
       "command": "uvx",
-      "args": ["blender-mcp"]
+      "args": ["atelier-mcp"]
     }
   }
 }
@@ -182,7 +186,7 @@ Or manually — **macOS/Linux**: Settings → MCP → Add new global MCP server,
   "mcpServers": {
     "blender": {
       "command": "cmd",
-      "args": ["/c", "uvx", "blender-mcp"]
+      "args": ["/c", "uvx", "atelier-mcp"]
     }
   }
 }
@@ -203,7 +207,7 @@ Click the badge above (requires VS Code 1.96+ with MCP support enabled).
 <summary><b>OpenAI Codex / GitHub Copilot CLI</b></summary>
 
 ```bash
-codex mcp add blender -- uvx blender-mcp
+codex mcp add blender -- uvx atelier-mcp
 ```
 </details>
 
@@ -384,7 +388,7 @@ Lookup order: **Add-on Preferences → Scene properties → environment variable
 | **Sketchfab token lost after Blender restart** | You're on stock upstream. Switch to this fork ([#235](https://github.com/ahujasid/blender-mcp/pull/235) integrated). |
 | **`Communication error: ...`** when really it's a code error | Switch to this fork ([#228](https://github.com/ahujasid/blender-mcp/pull/228) integrated — gives "Blender Python error: ..." instead). |
 | **Hyper3D image upload fails** | Switch to this fork ([#220](https://github.com/ahujasid/blender-mcp/pull/220) integrated — base64 decode + real URL validation). |
-| **MCP server initialization timeout** | Pre-cache deps once: `uvx blender-mcp --help`. Or `uv tool install blender-mcp` for a permanent install. |
+| **MCP server initialization timeout** | Pre-cache deps once: `uvx atelier-mcp --help`. Or `uv tool install atelier-mcp` for a permanent install. |
 | **Sketchfab download `IncompleteRead`** | CDN is flaky for some specific UIDs. Retry, or pick a smaller model from search results. |
 | **Have you tried turning it off and on again?** | Disable the addon in Blender → re-enable → click Connect to Claude → restart your AI client. |
 
@@ -411,7 +415,7 @@ The fork inherits anonymous-by-default telemetry from upstream. Two ways to opt 
   "mcpServers": {
     "blender": {
       "command": "uvx",
-      "args": ["blender-mcp"],
+      "args": ["atelier-mcp"],
       "env": { "DISABLE_TELEMETRY": "true" }
     }
   }

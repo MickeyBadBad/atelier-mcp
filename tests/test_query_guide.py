@@ -10,7 +10,7 @@ Coverage:
 from __future__ import annotations
 import pytest
 
-from blender_mcp._query_guide import (
+from atelier._query_guide import (
     _GUIDE,
     asset_query_help_data,
 )

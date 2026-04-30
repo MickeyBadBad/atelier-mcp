@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import inspect
 
-from blender_mcp import server
+from atelier import server
 
 
 def test_slice6_tools_registered():

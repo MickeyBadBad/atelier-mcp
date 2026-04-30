@@ -7,7 +7,7 @@ import sys
 from unittest.mock import MagicMock
 
 # Stub Blender-only modules at import time so addon.py (top-level module
-# at the repo root, not part of the blender_mcp package) can be imported
+# at the repo root, not part of the atelier package) can be imported
 # in unit tests without a running Blender. addon.py does
 #   import bpy
 #   import mathutils
@@ -27,6 +27,6 @@ def mock_blender_connection(monkeypatch):
     we set via .send_command.return_value."""
     fake = MagicMock()
     fake.send_command = MagicMock(return_value={"some": "result"})
-    from blender_mcp import server
+    from atelier import server
     monkeypatch.setattr(server, "get_blender_connection", lambda: fake)
     return fake

@@ -5,7 +5,7 @@ import time
 
 import pytest
 
-from blender_mcp._snapshots import (
+from atelier._snapshots import (
     LoopLevel,
     SnapshotError,
     snapshot_create,

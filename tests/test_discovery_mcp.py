@@ -1,7 +1,7 @@
 """Smoke tests confirming the new MCP tools register correctly."""
 from __future__ import annotations
 
-from blender_mcp import server
+from atelier import server
 
 
 def test_discovery_mcp_tools_registered():
@@ -20,13 +20,13 @@ def test_discovery_mcp_tools_registered():
 
 
 def test_audit_interior_quality_registered():
-    from blender_mcp import server
+    from atelier import server
     assert hasattr(server, "audit_interior_quality")
 
 
 def test_procurement_mcp_tools_registered():
     """Slice 4 procurement + BoM + SKU parser tools."""
-    from blender_mcp import server
+    from atelier import server
     expected = (
         "record_sku_purchase",
         "list_procurement",

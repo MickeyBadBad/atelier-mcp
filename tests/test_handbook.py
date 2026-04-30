@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from blender_mcp._handbook import (
+from atelier._handbook import (
     HandbookError,
     list_chapters,
     read_chapter,
@@ -69,5 +69,5 @@ def test_search_chapters_returns_a_list():
 
 def test_read_design_handbook_tool_registered():
     """The MCP tool should exist on the server module."""
-    from blender_mcp import server
+    from atelier import server
     assert hasattr(server, "read_design_handbook")

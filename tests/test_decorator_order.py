@@ -23,7 +23,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-SERVER_PY = Path(__file__).parent.parent / "src" / "blender_mcp" / "server.py"
+SERVER_PY = Path(__file__).parent.parent / "src" / "atelier" / "server.py"
 
 DECO_RE = re.compile(r"^@(tool_envelope|telemetry_tool\(.*\)|mcp\.tool\(\))\s*$")
 DEF_RE = re.compile(r"^\s*(async\s+)?def\s+\w+")

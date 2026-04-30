@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from blender_mcp._style_vocab import (
+from atelier._style_vocab import (
     StyleVocabError,
     available_styles,
     parse_style_chapter,

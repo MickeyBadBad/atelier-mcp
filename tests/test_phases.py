@@ -1,5 +1,5 @@
 """Sprint 6 — tool phase taxonomy tests."""
-from blender_mcp._phases import PHASES, phase_for_tool, list_tools_by_phase
+from atelier._phases import PHASES, phase_for_tool, list_tools_by_phase
 
 
 def test_phase_keys_match_curated_list():
