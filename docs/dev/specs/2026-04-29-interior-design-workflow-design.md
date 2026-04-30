@@ -494,6 +494,6 @@ The workflow is acceptable when a non-designer user can:
 
 ## Relationship to Prior Specs
 
-- `docs/superpowers/specs/2026-04-29-interior-design-mcp-design.md` — defines the **generic MCP tool layer**. Tools listed there (`create_interior_project`, `import_plan_reference`, `apply_finish`, etc.) remain as-is. This document **extends** that spec with handbook, skills, quality gates, discovery, and workflow orchestration.
-- `docs/superpowers/specs/2026-04-28-blender-mcp-optimization-roadmap.md` — earlier optimization scope; orthogonal to this work.
-- `docs/superpowers/plans/2026-04-29-interior-design-mcp.md` — the implementation plan for the generic MCP layer. A new plan covering Slices 1-3 of this document will be written next.
+- `docs/dev/specs/2026-04-29-interior-design-mcp-design.md` — defines the **generic MCP tool layer**. Tools listed there (`create_interior_project`, `import_plan_reference`, `apply_finish`, etc.) remain as-is. This document **extends** that spec with handbook, skills, quality gates, discovery, and workflow orchestration.
+- `docs/dev/specs/2026-04-28-blender-mcp-optimization-roadmap.md` — earlier optimization scope; orthogonal to this work.
+- `docs/dev/plans/2026-04-29-interior-design-mcp.md` — the implementation plan for the generic MCP layer. A new plan covering Slices 1-3 of this document will be written next.

@@ -1900,7 +1900,7 @@ def read_design_handbook(
 
     The handbook lives as markdown in docs/handbook/. Every numeric
     value inside is sourced and cited (per the Sources & Citation
-    Policy in docs/superpowers/specs/2026-04-29-interior-design-
+    Policy in docs/dev/specs/2026-04-29-interior-design-
     workflow-design.md).
 
     Three call modes:

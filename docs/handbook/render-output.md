@@ -1,6 +1,6 @@
 # Render Output and View Transforms
 
-> Sources: Blender Manual (5.1 / latest) - Color Management, Cycles Sampling, EEVEE Next Sampling, Packed Data; Blender Developer Documentation 4.0 - Color Management release notes; Troy Sobotka - filmic-blender README and AgX repository; ACES Central; HomeJab "Step-by-Step Guide to Bracketing Interiors"; PropertyPixel "HDR Real Estate Photography: Bracketing Guide"; Esoft "Mastering HDR Photography Through Bracketing"; the workflow spec at `docs/superpowers/specs/2026-04-29-interior-design-workflow-design.md` (Quality Gate #5, #6, #9).
+> Sources: Blender Manual (5.1 / latest) - Color Management, Cycles Sampling, EEVEE Next Sampling, Packed Data; Blender Developer Documentation 4.0 - Color Management release notes; Troy Sobotka - filmic-blender README and AgX repository; ACES Central; HomeJab "Step-by-Step Guide to Bracketing Interiors"; PropertyPixel "HDR Real Estate Photography: Bracketing Guide"; Esoft "Mastering HDR Photography Through Bracketing"; the workflow spec at `docs/dev/specs/2026-04-29-interior-design-workflow-design.md` (Quality Gate #5, #6, #9).
 > Last updated: 2026-04-29
 
 ## Purpose

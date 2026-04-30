@@ -126,7 +126,7 @@ Anything outside these six (hotel, school, hospital, factory) is out of scope fo
 
 ## Blender collection layout
 
-Every project, regardless of type, uses the same top-level Blender collection structure (per `docs/superpowers/specs/2026-04-29-interior-design-workflow-design.md`):
+Every project, regardless of type, uses the same top-level Blender collection structure (per `docs/dev/specs/2026-04-29-interior-design-workflow-design.md`):
 
 ```
 00_REFERENCES/    01_PLAN/        02_SHELL/       03_ZONES/
@@ -175,4 +175,4 @@ Cross-reference: `discovery.md` defines the canonical space-type slugs; the scaf
 - [`spatial.md`](spatial.md) — clearance rules that apply within each space type's program.
 - [`discovery.md`](discovery.md) — questionnaire that maps user input to a project-type slug from this chapter.
 - `space-types/*.md` — per-space-type chapters (living room, kitchen, bedroom, dining, bar, etc.) referenced in the program lists above.
-- `docs/superpowers/specs/2026-04-29-interior-design-workflow-design.md` — full Blender collection convention and citation policy.
+- `docs/dev/specs/2026-04-29-interior-design-workflow-design.md` — full Blender collection convention and citation policy.

@@ -2683,7 +2683,7 @@ gh release create v2.2.0-fork.1 \
 
 ## Execution Handoff
 
-Plan complete and saved to `docs/superpowers/plans/2026-04-29-sprint-6-mcp-quality-of-life.md`.
+Plan complete and saved to `docs/dev/plans/2026-04-29-sprint-6-mcp-quality-of-life.md`.
 
 Two execution options:
 

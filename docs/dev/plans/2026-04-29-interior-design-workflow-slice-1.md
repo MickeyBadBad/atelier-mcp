@@ -56,7 +56,7 @@ Create `docs/handbook/README.md`:
 ```markdown
 # Interior Design Handbook
 
-This handbook is the source of truth for design knowledge consumed by the Interior Design Workflow MCP. Every numeric value, range, rule, or code reference herein is fetched from authoritative public sources and cited inline. **Do not write content from training memory; do not invent section numbers.** See `docs/superpowers/specs/2026-04-29-interior-design-workflow-design.md` § "Sources & Citation Policy".
+This handbook is the source of truth for design knowledge consumed by the Interior Design Workflow MCP. Every numeric value, range, rule, or code reference herein is fetched from authoritative public sources and cited inline. **Do not write content from training memory; do not invent section numbers.** See `docs/dev/specs/2026-04-29-interior-design-workflow-design.md` § "Sources & Citation Policy".
 
 ## Chapter index
 
@@ -411,7 +411,7 @@ def read_design_handbook(
 
     The handbook lives as markdown in docs/handbook/. Every numeric value
     inside is sourced and cited (per the Sources & Citation Policy in
-    docs/superpowers/specs/2026-04-29-interior-design-workflow-design.md).
+    docs/dev/specs/2026-04-29-interior-design-workflow-design.md).
 
     Three call modes:
 
@@ -1121,7 +1121,7 @@ git commit -m "feat(skill): interior-construction-handoff (final-deliverable orc
 ```python
 """Acceptance gate for Slice 1 handbook authoring.
 
-Per docs/superpowers/specs/2026-04-29-interior-design-workflow-design.md
+Per docs/dev/specs/2026-04-29-interior-design-workflow-design.md
 § "Sources & Citation Policy", every numeric claim in the handbook must
 trace to a cited authoritative source.
 

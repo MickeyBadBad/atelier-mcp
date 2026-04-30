@@ -4,7 +4,7 @@ This handbook is the **source of truth** for design knowledge consumed by the In
 
 > **Hard rule (per the Sources & Citation Policy):** Do not write content from training memory. Do not invent section numbers. Do not paraphrase a "common-sense" interior-design rule without an inline citation. If no authoritative source can be located for a claim, state so explicitly rather than fabricating a number.
 >
-> See `docs/superpowers/specs/2026-04-29-interior-design-workflow-design.md` § "Sources & Citation Policy" for the full policy.
+> See `docs/dev/specs/2026-04-29-interior-design-workflow-design.md` § "Sources & Citation Policy" for the full policy.
 
 ## Chapter index
 

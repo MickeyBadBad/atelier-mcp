@@ -50,7 +50,7 @@ A → B → C → D → E in order. All five concerns are real; treat them as fi
 - Promote `docs/handbook/` to be a navigable asset with its own README and topical index
 - Add `docs/OVERVIEW.md` — the 5-layer architecture explained for a non-technical reader
 - Add `docs/ARCHITECTURE.md` — for technical readers who want to understand the code layout
-- Move `docs/superpowers/` → `docs/dev/` (it's developer-internal stuff; rename also avoids confusion with the SuperPowers plugin)
+- Move `docs/dev/` → `docs/dev/` (it's developer-internal stuff; rename also avoids confusion with the SuperPowers plugin)
 - Result: `docs/handbook/`, `docs/OVERVIEW.md`, `docs/ARCHITECTURE.md`, `docs/dev/` (specs + plans)
 
 ### D. Claude plugin format

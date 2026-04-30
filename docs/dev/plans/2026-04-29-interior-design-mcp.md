@@ -2253,7 +2253,7 @@ Scope:
 
 Execution handoff:
 
-Plan complete and saved to `docs/superpowers/plans/2026-04-29-interior-design-mcp.md`. Two execution options:
+Plan complete and saved to `docs/dev/plans/2026-04-29-interior-design-mcp.md`. Two execution options:
 
 1. Subagent-Driven (recommended) - dispatch a fresh subagent per task, review between tasks, fast iteration.
 2. Inline Execution - execute tasks in this session using executing-plans, batch execution with checkpoints.

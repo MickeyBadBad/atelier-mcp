@@ -1,6 +1,6 @@
 """Acceptance gate for Slice 1 handbook authoring.
 
-Per docs/superpowers/specs/2026-04-29-interior-design-workflow-design.md
+Per docs/dev/specs/2026-04-29-interior-design-workflow-design.md
 § "Sources & Citation Policy", every numeric claim in the handbook must
 trace to a cited authoritative source.
 

@@ -74,7 +74,7 @@ The addon stays the same `addon.py` file — re-install it (Edit → Preferences
   - `audit_interior_quality_native(mode, project_root)` — one-shot audit (no separate `get_scene_info` call needed).
   - `create_interior_project_native(project_name, project_type, spaces)` — composes filesystem-side `create_interior_project` with addon-side scaffold.
 - **`tests/test_e2e_workflow.py`** — full pure-Python smoke test (discovery → project → moodboard → procurement → audit → BoM → snapshot).
-- **`docs/superpowers/specs/2026-04-30-test-plan.md`** — 4-layer test plan (pure-Python / MCP boot / MCP+Blender / full workflow).
+- **`docs/dev/specs/2026-04-30-test-plan.md`** — 4-layer test plan (pure-Python / MCP boot / MCP+Blender / full workflow).
 
 ### Statistics
 
@@ -89,7 +89,7 @@ The addon stays the same `addon.py` file — re-install it (Edit → Preferences
 
 The Interior Design Workflow release. Five implementation slices land an end-to-end design pipeline on top of the v2.2.0 quality-of-life base: from a non-designer's first contact with the system, through Discovery questionnaire → moodboard lock → Blender scaffold → quality-gated render → SKU-tracked procurement → BoM. **The user gives rough direction and like/dislike feedback; the AI carries professional design knowledge and operates Blender.**
 
-The whole release is scoped by a single design spec — `docs/superpowers/specs/2026-04-29-interior-design-workflow-design.md` — with a hard "Sources & Citation Policy" gate: every numeric value, range, and rule shipped in this version traces to a fetched authoritative source (GB / IES / Neufert / Disney BSDF / IBC / named publications) and is cited inline. No invented values.
+The whole release is scoped by a single design spec — `docs/dev/specs/2026-04-29-interior-design-workflow-design.md` — with a hard "Sources & Citation Policy" gate: every numeric value, range, and rule shipped in this version traces to a fetched authoritative source (GB / IES / Neufert / Disney BSDF / IBC / named publications) and is cited inline. No invented values.
 
 ### Added
 
@@ -126,8 +126,8 @@ The whole release is scoped by a single design spec — `docs/superpowers/specs/
 
 #### Workflow planning
 
-- **`docs/superpowers/specs/2026-04-29-interior-design-workflow-design.md`** — end-to-end design spec with Sources & Citation Policy hard rule.
-- **`docs/superpowers/plans/`** — Slice 1, 2, 3, 4 plans (executed); Slice 6, 7, 8 plans (queued).
+- **`docs/dev/specs/2026-04-29-interior-design-workflow-design.md`** — end-to-end design spec with Sources & Citation Policy hard rule.
+- **`docs/dev/plans/`** — Slice 1, 2, 3, 4 plans (executed); Slice 6, 7, 8 plans (queued).
 
 ### Changed
 

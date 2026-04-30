@@ -152,4 +152,4 @@ Every style file in `docs/handbook/styles/<name>.md` carries a frontmatter axis 
 - `styles/*.md` — style-axes ground truth used in Stage 2
 - `materials.md` — Type-4 vocabulary source (material chip list)
 - `space-types/*.md` — per-space mini-questionnaire content (trigger C)
-- Workflow spec, `docs/superpowers/specs/2026-04-29-interior-design-workflow-design.md` §"Discovery Questionnaire — Detailed Spec" — upstream design intent
+- Workflow spec, `docs/dev/specs/2026-04-29-interior-design-workflow-design.md` §"Discovery Questionnaire — Detailed Spec" — upstream design intent

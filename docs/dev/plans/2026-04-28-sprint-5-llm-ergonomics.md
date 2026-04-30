@@ -1609,7 +1609,7 @@ git push fork sprint-5-ergonomics
 ```bash
 gh pr create --base develop --head sprint-5-ergonomics \
   --title "Sprint 5 — LLM ergonomics (v2.0.0+fork.1)" \
-  --body-file docs/superpowers/specs/2026-04-28-blender-mcp-optimization-roadmap.md
+  --body-file docs/dev/specs/2026-04-28-blender-mcp-optimization-roadmap.md
 # Review, then merge:
 gh pr merge --squash --delete-branch
 git checkout develop && git pull
