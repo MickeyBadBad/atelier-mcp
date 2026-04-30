@@ -58,9 +58,12 @@ dev = [
 ]
 
 [project.scripts]
+# Primary CLI: works without an MCP client (Pass A — Reach).
+atelier = "atelier.cli:main"
+# MCP server entry point (used by Claude / Cursor / etc.).
 atelier-mcp = "atelier.server:main"
 # Backward-compat alias so existing claude_desktop_config.json files
-# pointing at `blender-mcp` keep working through the 2.4 transition.
+# pointing at `blender-mcp` keep working through the 2.4/2.5 transition.
 blender-mcp = "atelier.server:main"
 
 [build-system]
