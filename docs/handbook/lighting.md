@@ -95,6 +95,21 @@ For wall offset:
 
 For a typical small-commercial ceiling (≈ 2.7 m), this gives a downlight pitch in the 1.0–1.4 m range and a wall offset of ~0.5–0.7 m before the first row.
 
+## HDRI exposure calibration via reference spheres
+
+Photoreal interior renders depend on getting the HDRI strength **objectively right** before any room materials are applied — otherwise every subsequent material decision compensates for under- or over-exposure and the scene drifts. The professional VFX practice is to plant **calibration reference spheres** (a chrome ball + a neutral 18% gray ball + sometimes white and matte black balls) in the scene, then tune HDRI strength until each sphere reads correctly under the chosen view transform (per Paul Debevec's seminal 1998 SIGGRAPH paper *Rendering Synthetic Objects into Real Scenes*, the IBL paper that established the chrome+gray reference-sphere pattern in production VFX; canonized into a standard on-set kit by Digital Domain on *X-Men* (2000), the first feature-film VFX workflow to use chrome balls for HDRI capture per *befores & afters* "VFX Firsts" 2021).
+
+Calibration check (after planting the spheres in the empty room shell, before applying scene materials):
+
+- **Chrome sphere** — should clearly show the surrounding HDRI environment without highlights blowing out
+- **18% gray sphere** — should read as middle gray under the active view transform (AgX / Filmic), not too bright nor crushed
+- **White sphere** — should approach white but retain texture in highlights (no clipping)
+- **Black sphere** — should read deeply but not pure-black-clipped — the back-shadow side should still have some shape
+
+If any sphere fails its check, adjust the HDRI strength and re-render, not the camera exposure. The HDRI is the physical light source; treating it as the variable-of-record is what makes the rest of the scene predictable. The 4-sphere variant (black + gray + white + chrome) is a refinement of the 2-sphere on-set reference kit (chrome + 18% gray), with the extra two spheres giving better signal at the dynamic-range extremes (per VFX-industry on-set kit guides at *vfxballstore.com* / *refballstore.com*; observed in coral lab "Photorealistic Japandi Interior in Blender" tutorial 2024-04, single-source for the 4-sphere variant — corroboration from a second tutorial pending).
+
+Once calibrated, apply room materials and re-check that the spheres still read correctly. Re-tune HDRI strength only if they drift; do NOT keep adjusting it as you add materials, or you'll chase your tail.
+
 ## Blender practical mapping
 
 Blender Light objects accept Kelvin two ways:

@@ -105,6 +105,59 @@ Munsell's color notation gives a defensible vocabulary for warm/cool: hue is one
 
 For the cafe: emerald `#1a3a2e` is a cool dominant; walnut and brass are warm secondaries; retro purple `#3d2449` is a cool-leaning accent. Amber 2200-2400K lighting (see `lighting.md`) shifts the warm channel up and reads the emerald slightly less saturated — this is intentional speakeasy-mood behavior.
 
+## Cycles-specific shader patterns
+
+A few non-obvious shader-graph techniques recur in production photoreal interior workflows. They're documented here so a quality gate or skill can recommend them by citation.
+
+### Shadow-less transparent objects (sheer curtains, gauze, light scrims)
+
+Sheer fabrics — voile curtains, gauze room dividers, scrim panels — should appear visually in the camera but **not** cast harsh shadows that would block ambient light propagation through a window or partition. The Cycles idiom is a Mix Shader between the visible BSDF (Principled or Translucent) and a **Transparent BSDF**, with the Mix factor driven by the **`Is Shadow Ray`** output of a Light Path node:
+
+```
+[Principled BSDF] ────────┐
+                          ├──[Mix Shader] ─── Material Output
+[Transparent BSDF] ───────┤
+                          │
+[Light Path] ─ Is Shadow Ray ─ Fac
+```
+
+When Cycles traces a shadow ray (i.e., a ray testing occlusion between a surface and a light), `Is Shadow Ray` returns 1 → the Mix Shader picks the Transparent BSDF → the object passes light through as if it weren't there. For camera rays (rendering the visible image), `Is Shadow Ray` returns 0 → the Mix Shader picks the visible BSDF → the curtain/gauze appears normally. Net effect: visible to the camera, invisible to shadow casting (per Blender Cycles documentation of the Light Path node `Is Shadow Ray` output, summarized via Blender Artists forum threads and *Graphics & Programming* tutorial *"Blender change shadow intensity and color with the Compositor"*; observed in coral lab "Photorealistic Japandi Interior in Blender" tutorial 2024-04 for sheer curtains, single-source for this specific application — corroboration from a second tutorial pending).
+
+Use cases:
+- Sheer / voile curtains in a window opening (preserves daylight bleeding into the room)
+- Scrim panels in retail / cafe environments
+- Mosquito netting around a bed canopy
+- Light diffusion scrims around studio lights modeled as scene geometry
+
+Caveats:
+- This controls **shadow casting** by the object, not shadow reception on the object — the curtain is just bypassed for shadow purposes
+- The Transparent BSDF can be tinted to color the (now-blocked) shadow if you want a colored shadow effect; leave as default white for fully shadow-less behavior
+- EEVEE Next's screen-space shadow approximation may not exactly mirror the Cycles `Is Shadow Ray` behavior; verify the result in your final engine
+
+### Real-world UV scaling for surface-pattern textures
+
+Floor planks, brick courses, tile grids, panel mouldings — any texture whose **physical pattern size** carries scale information — must be UV-mapped to match real-world dimensions, not visually approximated. A 30 cm oak plank rendered at 60 cm reads "small room with giant planks" or "warehouse with normal planks" — whichever the brain picks, it's wrong.
+
+The discipline:
+
+1. Look up the actual physical width of the pattern (e.g. herringbone oak: typically 90–120 mm width per stick; wide-plank oak: 150–250 mm; subway tile: 75 × 150 mm; running-bond brick: 215 × 65 mm coursing).
+2. Measure the texture map's physical span (most PolyHaven / Substance textures publish a "real-world size" — e.g. *WoodFloor047* on PolyHaven is documented as 4 m × 2 m).
+3. UV-scale the mesh so the texture's physical span maps to the same real-world span on the mesh.
+
+In Blender, the **Magic UV** addon (ships with Blender, enable in Preferences → Add-ons) provides a "Texture Projection" with explicit real-world-size input that bypasses the trial-and-error of UV unwrapping for planar surfaces (observed in coral lab tutorial for 30 cm plank scaling; the underlying technique — texture mapping at known physical scale — is the foundation of all PBR workflow per Adobe Substance PBR Guide Part 1 *"Texture sets and UV layout"*, single-source for the specific Magic UV recommendation — corroboration pending; the general discipline of real-world UV scaling is well-corroborated by Substance docs).
+
+If the texture publishes no real-world size, infer one from the pattern (count visible plank widths in the texture, multiply by your assumed per-plank width). When in doubt, choose the smaller real-world size — over-scaled patterns look more wrong than under-scaled ones.
+
+### Mix Color (Overlay) for grayscale tinting
+
+When you have a grayscale or low-saturation tileable texture (a fabric weave, a stone surface, a paper grain) and want to **add color tint without losing the texture's contrast and detail**, the standard move is a **Mix Color node in Overlay blend mode**. Plug the grayscale texture into one input, your tint color into the other, and route the output to Base Color.
+
+Overlay multiplies darks and screens lights — it preserves the source texture's mid-frequency contrast while shifting the chrominance toward the tint color. This is materially cheaper and visually closer than a Multiply or a HSV-shift on the original (per Blender Manual *Mix Color Node* documentation of the Overlay blend mode, summarized via search-result excerpt; observed in coral lab tutorial for tinting an armchair fabric, single-source for this specific application — the technique is generic Blender shader practice).
+
+When NOT to use Overlay:
+- If the source texture is already saturated, Overlay will compound the saturation. Use Hue blend instead.
+- For pure tinting without preserving source contrast, use Multiply (darker) or Color blend (replaces hue/saturation, keeps value).
+
 ## Practical Blender mapping
 
 The Blender Principled BSDF *"combines multiple layers into a single easy-to-use node … based on the OpenPBR Surface shading model, and provides parameters compatible with similar PBR shaders found in other software, such as the Disney and Standard Surface models. Image textures painted or baked from software like Substance Painter may be directly linked to the corresponding input in this shader"* (per the Blender Manual, Principled BSDF page, summarized via search-result excerpt because the manual host returned 403 to direct WebFetch at fetch time). The most-used inputs:
