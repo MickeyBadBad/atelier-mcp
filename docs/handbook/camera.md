@@ -13,6 +13,23 @@ Architectural interior renders should default to a **24-35 mm full-frame-equival
 
 Avoid going wider than 24 mm full-frame (≈ 15 mm APS-C) unless absolutely required (per Austin LaRue Photography: "highly recommended against shooting with any lens wider than 24mm on a full-frame camera"; ultra-wide focal lengths "make the sides of the frame look oddly stretched and off the horizontal plane, even when corrected in post-production"). McGrath's *Photographing Buildings Inside and Out* is the canonical reference for the discipline (Google Books index lists wide-angle lenses, PC lenses, and Super Angulons among its primary technical vocabulary), but a specific 24 mm-vs-35 mm McGrath quotation could not be verified from the publicly searchable summaries; treat the 24-35 mm default as the contemporary industry consensus rather than as a McGrath direct quote.
 
+### When to use 45-50 mm instead
+
+The 24-35 mm default is for **spatial-sense hero shots** that capture the room's volume + at least two walls + ceiling + floor in a single frame. For **compressed-perspective / vignette / detail shots** that isolate a furniture cluster or focal feature, the 45-50 mm "human-eye" focal length is widely used in production photoreal interior tutorials (cross-tutorial agreement from synthesis Round 2: art_of_3d_rendering uses 45 mm, coral lab 50 mm; nuno_silva educationally surveys the full 10/24/35/50/85/100 mm range). The look:
+
+- **24-28 mm** — spatial wide-angle hero, 3/4 from entry, captures the whole room
+- **35 mm** — documentary mid-wide, eye-level cross-room
+- **45-50 mm** — human-eye / compressed perspective — flattens the scene a bit, makes a single furniture cluster + window the subject without the rest of the room competing
+- **70-85 mm** — detail crop on a styling vignette or material moment
+- **100 mm+** — macro detail (texture closeups)
+
+Pick the focal length based on **what's the subject of the shot**, not just "wide is better for interiors":
+- Subject is the **room** (volume / spatial relationship of furniture) → 24-28 mm
+- Subject is a **furniture cluster / feature wall** (sofa + coffee table + lamp; or fireplace + art) → 45-50 mm
+- Subject is a **single object's craft** (a tufted armrest, a stone-counter joint, a brass fixture) → 70-85 mm or longer
+
+This nuance resolves what looked like a conflict in synthesis Round 1, where one tutorial used 50 mm in interior context against our 24-35 mm default. Both are correct; they're for different shot types.
+
 Supplementary lenses (per Austin LaRue Photography and *Best Lenses for Architectural Photography*):
 - **50 mm full-frame** for "natural and less distorted perspective" - good for vignettes that read like the human eye sees them.
 - **70 mm and longer** for detail crops - "isolating specific architectural details" and "compress[ing] perspective".

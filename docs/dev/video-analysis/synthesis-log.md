@@ -31,6 +31,61 @@ Format per round:
 
 ---
 
+## 2026-05-01 — Round 2: Cross-tutorial photoreal interior consensus (4 new analyses)
+
+**Analyses synthesized**:
+- `analyses/2026-05-01-coral_lab-Creating_a_photorealistic_Japandi_interior_in_Blender.md` (manual; round 1)
+- `analyses/2026-05-01-coral_lab-japandi-gemini-pipeline-v2.md` (re-run via pipeline; same source)
+- `analyses/2026-05-01-noel_3d-photorealistic_interior_lighting_tutorial_in_blender_40_cycl.md` (NEW — Noel-3D, 20:32, lighting-specific)
+- `analyses/2026-05-01-nuno_silva-the_7_step_formula_to_photorealistic_interior_3d_renders.md` (NEW — Nuno Silva, 16:39, workflow framework)
+- `analyses/2026-05-01-art_of_3d_rendering-blender_photorealistic_interior_render_in_cycles_tutorial.md` (NEW — Art of 3D Rendering, 34:36, Cycles deep-dive)
+- `analyses/2026-05-01-rileyb3d-optimize_interior_renderings_in_blender_cycles.md` (NEW — rileyb3d, 11:02, optimization)
+
+5 unique sources (the two coral lab analyses are the same video, count once for cross-source agreement).
+
+### Cross-tutorial agreement (≥ 2 sources) — applied to handbook
+
+- **AgX view transform default** — 4/5 explicit (art_of_3d, both coral_lab, noel_3d). Already in `render-output.md`; CONFIRMED, no edit needed.
+- **OpenImageDenoise + Adaptive Sampling threshold 0.01** — 4/5 use OIDN (rileyb3d uses OptiX as the RTX-accelerated alternative); 4/5 explicit threshold = 0.01 (the 5th says 0.1 in v2 re-run, treated as parsing artifact since v1 = 0.01). **APPLIED** to `render-output.md` § "Denoising (cross-tutorial consensus)" with explicit 0.01 threshold + OIDN-vs-OptiX trade-off + Blender Manual primary citation.
+- **Light Path `Is Shadow Ray` shader idiom** — round-1 application (sheer curtains, coral lab) + new application (glass windows, rileyb3d) = 2 independent applications of the same shader pattern. **APPLIED** to `materials.md` § "Cycles-specific shader patterns / Shadow-less transparent objects" — section title kept; "Use cases" expanded with rileyb3d's window application; the Cycles dark-interior problem now explicitly addressed as one of the patterns this idiom solves.
+- **Layered lighting (ambient/task/accent)** — noel_3d explicit + our existing `lighting.md` § "The four-layer model". CONFIRMED, no edit.
+- **Eye-level camera height ≤ 1.6 m + 2-point perspective** — nuno_silva explicit + our existing `camera.md` § "Camera height" + § "Vertical-line preservation". CONFIRMED, no edit.
+- **Blackbody node for physical Kelvin on lights** — noel_3d explicit + our existing `lighting.md` § "Blender practical mapping". CONFIRMED, no edit.
+
+### Conflict resolution — 45-50 mm focal length (Round 1 flagged for review)
+
+Round 1 noted that coral lab uses 50 mm in interior context, conflicting with our `camera.md` 24-35 mm default. Round 2 settles it: **2 independent tutorials use 45-50 mm** (art_of_3d 45 mm; coral lab 50 mm; nuno_silva educationally surveys the full range). **APPLIED** to `camera.md` § "When to use 45-50 mm instead" — explicitly nuances the default: 24-28 mm for spatial-sense hero (room as subject), 45-50 mm for compressed-perspective vignette (furniture cluster as subject), 70-85 mm for detail crops, 100 mm+ for macro. Both 24-35 mm and 45-50 mm are now correct; the rule chooses based on shot subject.
+
+### Single-tutorial findings recorded — pending second source
+
+(Each is genuinely interesting craft knowledge but not yet 2-source-confirmed. Recorded here so the next analyzer-run can match against them.)
+
+- **Volumetric lighting / Volume Scatter density 0.005 for atmospheric haze** (art_of_3d) — atmospheric humidity simulation; visible god-rays around windows
+- **Light portals (area light placed in window opening)** (rileyb3d) — Cycles optimization; drastically reduces noise in interior scenes lit through small windows
+- **Cryptomatte selective denoising** (rileyb3d) — apply different denoise levels to walls vs. complex objects via View Layer crypto masks
+- **Surface imperfections / decals (dust, stains, scratches)** (nuno_silva) — breaks CGI perfection; could be a procedural shader or decal-mesh approach
+- **1-2 mm gaps between intersecting objects** (nuno_silva) — generates physical contact shadows instead of fused-mesh look
+- **Lens effects in compositor (chromatic aberration + vignette + Gaussian blur)** (nuno_silva) — mimics real camera sensor; we don't have a compositor section yet
+- **Glossy ray amplification (multiply glossy by 5×, set diffuse to 0)** (noel_3d) — custom shader graph trick to enhance reflections without overexposing
+- **Micro-roughness via noise texture** (art_of_3d) — drive Roughness with low-frequency noise to break perfectly-uniform surfaces
+- **Subtle displacement on fabrics** (coral lab) — small physical displacement on sherpa / boucle fabric for silhouette break
+- **HDRI calibration spheres** (coral lab) — round-1 single-source still; no corroboration this round
+
+### Tutorial-only observations not encoded
+
+- **Cycles samples 256-4096 range** observed across tutorials; falls within our existing `render-output.md` ≥ 512 hero / ≥ 1024 construction band. No new rule needed.
+- **OptiX denoiser** (rileyb3d only) — 1/5; encoded as alternative to OIDN in the new section but flagged as RTX-accelerated optional path
+
+### Tests
+
+`pytest tests/test_handbook_acceptance.py` — 6 passed (citation density, no fabricated section markers, sources block, substantial chapters all green).
+
+### Commit
+
+(this round)
+
+---
+
 ## 2026-05-01 — Round 1: Photoreal interior production techniques (single-source)
 
 **Analyses synthesized**:

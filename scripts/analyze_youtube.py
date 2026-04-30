@@ -75,25 +75,47 @@ DEFAULT_PROMPT = (
 DEFAULT_ANALYSES_DIR = REPO_ROOT / "docs/dev/video-analysis/analyses"
 
 
-def _http(method: str, url: str, *, payload=None, timeout=600):
+def _http(method: str, url: str, *, payload=None, timeout=600, retries: int = 3):
+    """HTTP with retry on transient network errors (RemoteDisconnected, SSL,
+    URLError). Backs off 5s / 15s / 45s. HTTPErrors with status codes
+    (4xx/5xx) are NOT retried — caller decides via the status code.
+    """
+    import time
     headers = {"Content-Type": "application/json"}
     body = json.dumps(payload).encode("utf-8") if payload is not None else None
-    req = urllib.request.Request(url, data=body, headers=headers, method=method)
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            raw = r.read().decode("utf-8", errors="replace")
-            try:
-                return r.status, json.loads(raw)
-            except json.JSONDecodeError:
-                return r.status, raw
-    except urllib.error.HTTPError as e:
-        raw = e.read().decode("utf-8", errors="replace") if e.fp else ""
+
+    last_err = None
+    for attempt in range(retries):
+        req = urllib.request.Request(
+            url, data=body, headers=headers, method=method,
+        )
         try:
-            return e.code, json.loads(raw) if raw else {}
-        except json.JSONDecodeError:
-            return e.code, raw
-    except urllib.error.URLError as e:
-        return -1, f"URLError: {e.reason}"
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                raw = r.read().decode("utf-8", errors="replace")
+                try:
+                    return r.status, json.loads(raw)
+                except json.JSONDecodeError:
+                    return r.status, raw
+        except urllib.error.HTTPError as e:
+            # HTTP-status errors return immediately — no retry
+            raw = e.read().decode("utf-8", errors="replace") if e.fp else ""
+            try:
+                return e.code, json.loads(raw) if raw else {}
+            except json.JSONDecodeError:
+                return e.code, raw
+        except (urllib.error.URLError, ConnectionError, OSError) as e:
+            last_err = e
+            if attempt < retries - 1:
+                wait = 5 * (3 ** attempt)  # 5s / 15s / 45s
+                print(
+                    f"  [http] transient error: {type(e).__name__}: "
+                    f"{e}; retry in {wait}s...",
+                    file=sys.stderr,
+                )
+                time.sleep(wait)
+                continue
+            return -1, f"{type(e).__name__}: {e}"
+    return -1, f"exhausted retries: {last_err}"
 
 
 def fetch_video_metadata(url: str) -> dict:

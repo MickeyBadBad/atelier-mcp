@@ -43,6 +43,21 @@ When the noise budget is tight, enable **Adaptive Sampling**: "If the Noise Thre
 
 For EEVEE Next, raytracing samples and screen-space samples are separate knobs from main sampling and increase quality "at the cost of more noise" trade-offs of their own (per Blender Manual *EEVEE - Raytracing*, Latest). Treat the EEVEE numbers in the table as a floor for **TAA passes**; if raytraced reflections look noisy, raise the raytracing settings, not the main sample count.
 
+## Denoising (cross-tutorial consensus)
+
+For interior renders, **OpenImageDenoise** is the de-facto standard denoiser (4 of 5 production photoreal interior tutorials surveyed in synthesis Round 2 use it: coral lab, art_of_3d_rendering, noel_3d, plus the Round 1 baseline; rileyb3d uses **OptiX** as an NVIDIA-accelerated alternative). The Blender Manual documents both; OIDN is preferred for image quality and CPU/GPU portability, OptiX for raw speed on RTX hardware (per Blender Manual *Cycles → Render Settings → Denoising*; cross-tutorial agreement from 4/5 named photoreal interior tutorials surveyed 2026-05).
+
+Pair denoising with adaptive sampling for the best noise/time tradeoff:
+
+| Setting | Value | Rationale |
+|---|---|---|
+| Denoiser | OpenImageDenoise (default) / OptiX (RTX speed) | Cross-tutorial consensus |
+| Adaptive Sampling | On | Cross-tutorial consensus (4/5 surveyed) |
+| Noise Threshold | **0.01** | Cross-tutorial consensus — coral lab, art_of_3d, rileyb3d, noel_3d all use 0.01; the Blender Manual recommends "around 0.01" as a starting point for production scenes (per Blender Manual *Cycles → Sampling*; cross-tutorial agreement from 4/5 named photoreal interior tutorials surveyed 2026-05) |
+| Min Samples | 0 (Cycles auto-pick) | Per Blender Manual default |
+
+The 0.01 noise threshold means Cycles stops sampling pixels once their estimated noise drops below 1% of the pixel's value. Going lower (0.001) gives slightly cleaner output but rarely worth the render time on a denoised hero render; going higher (0.1) leaves visible noise that even denoising won't fully clean.
+
 ## Exposure bracketing
 
 Hero shots ship as a 3-frame bracket: **-1, 0, +1 stops**. The 0-stop frame is the canonical render and goes into the deck; the -1 and +1 frames document highlight and shadow latitude so the user can pick a different mood without re-rendering.

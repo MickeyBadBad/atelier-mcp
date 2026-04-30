@@ -121,10 +121,11 @@ Sheer fabrics — voile curtains, gauze room dividers, scrim panels — should a
 [Light Path] ─ Is Shadow Ray ─ Fac
 ```
 
-When Cycles traces a shadow ray (i.e., a ray testing occlusion between a surface and a light), `Is Shadow Ray` returns 1 → the Mix Shader picks the Transparent BSDF → the object passes light through as if it weren't there. For camera rays (rendering the visible image), `Is Shadow Ray` returns 0 → the Mix Shader picks the visible BSDF → the curtain/gauze appears normally. Net effect: visible to the camera, invisible to shadow casting (per Blender Cycles documentation of the Light Path node `Is Shadow Ray` output, summarized via Blender Artists forum threads and *Graphics & Programming* tutorial *"Blender change shadow intensity and color with the Compositor"*; observed in coral lab "Photorealistic Japandi Interior in Blender" tutorial 2024-04 for sheer curtains, single-source for this specific application — corroboration from a second tutorial pending).
+When Cycles traces a shadow ray (i.e., a ray testing occlusion between a surface and a light), `Is Shadow Ray` returns 1 → the Mix Shader picks the Transparent BSDF → the object passes light through as if it weren't there. For camera rays (rendering the visible image), `Is Shadow Ray` returns 0 → the Mix Shader picks the visible BSDF → the curtain/gauze appears normally. Net effect: visible to the camera, invisible to shadow casting (per Blender Cycles documentation of the Light Path node `Is Shadow Ray` output, summarized via Blender Artists forum threads and *Graphics & Programming* tutorial *"Blender change shadow intensity and color with the Compositor"*; cross-tutorial corroboration: coral lab "Photorealistic Japandi Interior in Blender" tutorial 2024-04 applies this to sheer curtains; rileyb3d "Optimize interior Renderings in Blender Cycles" tutorial 2024 applies the same idiom to glass windows to "solve the dark interior problem common with standard refractive glass" by toggling between a Principled BSDF (Glass) and Transparent BSDF based on ray type — same shader pattern, different surface).
 
-Use cases:
-- Sheer / voile curtains in a window opening (preserves daylight bleeding into the room)
+Use cases (cross-tutorial confirmed):
+- **Sheer / voile curtains** in a window opening (preserves daylight bleeding into the room) — coral lab application
+- **Glass windows / sliding doors** that would otherwise refract incoming light away from interior (the "dark Cycles interior" problem) — rileyb3d application; the Mix Shader picks Transparent BSDF for shadow rays so light passes through unrefracted, while Principled Glass renders for camera rays
 - Scrim panels in retail / cafe environments
 - Mosquito netting around a bed canopy
 - Light diffusion scrims around studio lights modeled as scene geometry
