@@ -1,10 +1,56 @@
-# Atelier — Interior-design MCP for Blender
+# 🪞 Atelier
 
-> **Atelier** is an interior-design-focused MCP server for Blender. The AI plays the role of a designer (handbook-grounded, citation-backed) and the user supplies rough direction + like/dislike feedback. Comes with a 25-question discovery questionnaire, a 39-chapter handbook covering 19 styles + 8 space types, 9-dimension quality gates that refuse to render flat-looking scenes, procurement / BoM tooling for 1688 / Taobao / Sketchfab / PolyHaven, and the full ~80-tool Blender MCP toolkit underneath.
+> **The AI designer for people who don't know design.**
 >
-> Drives Blender 4.x and 5.x from any MCP client — Claude Code, Claude Desktop, Cursor, VS Code Copilot, Codex — via the [Model Context Protocol](https://modelcontextprotocol.io/).
->
-> **Renamed from `blender-mcp` v2.3.0 → `atelier-mcp` v2.4.0** (2026-04-30) when the project's interior-design specialization outgrew the generic-Blender-MCP framing. The Python module is now `atelier`. Old `claude_desktop_config.json` entries pointing at `blender-mcp` keep working — we ship the alias for one minor version. See [`docs/superpowers/specs/2026-04-30-test-plan.md`](./docs/superpowers/specs/2026-04-30-test-plan.md) for migration notes.
+> Atelier is an end-to-end interior design workflow toolkit. You bring rough direction and "I like this / I don't like this" feedback. Atelier brings a 39-chapter design handbook (every numeric value cited to GB / IES / Neufert / Disney BSDF / named publications), 19 published-project-cited style chapters, 9-dimension quality gates that refuse to render scenes that read as plastic, and full Blender MCP integration so the AI can actually build the 3D scene.
+
+```text
+You:      "I want my apartment to feel like a Tokyo tea house. Cosy. 60m². Three rooms."
+Atelier:  → 25-question discovery (5 question types, projective + sensory + paired-visual)
+          → moodboard candidates citing Sōen, Ogata Higashiya, Naoshima Benesse
+          → Blender scene with the right Kelvin range, PBR materials, and prop density
+          → 1688 / Taobao SKU shopping list with photos + prices
+          → contractor-ready BoM with handbook citations on every spec
+```
+
+## 🎯 Who it's for
+
+- **Homeowners** redesigning their own home, who can't afford a designer
+- **Small business owners** opening a cafe / studio / boutique, who want it to look like AD
+- **Anyone who knows what they like but can't articulate it**
+
+## 🧰 What's in the box
+
+| Surface | What |
+|---|---|
+| 📖 **Handbook** | 39 sourced + cited chapters: codes, lighting, materials, camera, styling, 19 styles, 8 space types |
+| 🧠 **5 Claude skills** | discovery-intake · style-locking · plain-language-edit · render-direction · construction-handoff |
+| 💬 **CLI** | `atelier discover / styles / audit / bom / moodboard / handbook` — works without an AI client |
+| 🔌 **MCP server** | 80 tools covering Blender + PolyHaven + Sketchfab + AmbientCG + Tripo3D + Meshy + Hyper3D + Hunyuan3D |
+| 🛡️ **Quality gates** | 9 dimensions (materials, lighting, kelvin, camera, color management, samples, props, scale, packing) — every finding cites a handbook chapter |
+| 🛒 **Procurement & BoM** | 1688 / Taobao / JD / Sketchfab / PolyHaven SKU tracking → contractor-ready markdown / CSV BoM |
+
+## 🚀 Pick your flavor
+
+```bash
+# Just the CLI — no Claude needed
+pip install atelier-mcp
+atelier discover --depth deep
+atelier styles
+atelier handbook lighting
+
+# As a Claude / Cursor / Codex MCP server
+# Add to claude_desktop_config.json:
+#   { "mcpServers": { "atelier": { "command": "uvx", "args": ["atelier-mcp"] } } }
+# Then ask Claude to design something.
+
+# As a Claude plugin (one-click skills + commands + agents + MCP all bundled)
+# /plugin install <atelier-repo>     # see "Plugin install" section below
+```
+
+## 🆚 vs the official Anthropic Blender connector
+
+Anthropic shipped an official Blender connector on 2026-04-28. **You probably want it instead of Atelier if** you're a Blender artist who wants natural-language access to the Python API. **You probably want Atelier if** you're a non-designer trying to actually design a real space — Atelier ships the design knowledge (handbook, citations, gates), the workflow (discovery → moodboard → render → audit → BoM), and the SKU pipeline that the official connector doesn't try to address. See [the comparison](#-vs-the-official-anthropic-blender-connector-detail) below for detail.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
@@ -50,19 +96,14 @@ See the full [CHANGELOG](./CHANGELOG.md) for a per-commit breakdown.
 
 ---
 
-## ✨ What it does
+## ✨ What's underneath
 
-BlenderMCP exposes Blender as a set of MCP tools, so any AI client speaking the Model Context Protocol can:
+Atelier is composed of four layers — each useful on its own:
 
-- 🎨 **Create and edit scenes** — primitives, hierarchies, transforms, materials
-- 🧱 **Apply PBR textures** from [PolyHaven](https://polyhaven.com/) — diffuse, normal, roughness, AO, displacement, all wired correctly
-- 🪑 **Drop in 3D assets** from [Sketchfab](https://sketchfab.com/)'s 5M+ model library — search, preview, normalize-on-import
-- 🌅 **Set up HDRI lighting** in one call — search and apply `belfast_sunset_puresky` and friends
-- 🤖 **Generate 3D models from text/images** via [Hyper3D Rodin](https://hyper3d.ai/) and [Tencent Hunyuan3D](https://hunyuan3d.tencent.com/)
-- 🎥 **Render with Cycles or EEVEE** — Filmic tone-mapping, GPU acceleration, one-line render
-- 🔍 **Verify placement** — raycast samples to measure if an object is actually grounded
-- 📐 **Compose cameras** — preset isometric/3-quarter/orthographic angles
-- 🐍 **Run arbitrary Python** — `bpy` access for anything not covered by a dedicated tool
+1. **The Handbook** — `docs/handbook/` — 39 chapters, 4400+ lines, every numeric value cited to a public source (GB / IES / Neufert / Disney BSDF / IBC / named publications). 19 style chapters cite real published projects (Norm Architects' The Audo, Tadao Ando's Casa Wabi, Pierre Yovanovitch interiors, Death & Co NYC, %Arabica Kyoto, etc.). 8 space-type chapters cover dimensions / clearances / lighting recipes.
+2. **5 Claude Skills** — `.claude/skills/interior-*` — discovery-intake, style-locking, plain-language-edit, render-direction, construction-handoff. Each skill explicitly instructs the AI to cite the handbook before applying a rule.
+3. **The Atelier CLI** — `atelier discover|styles|audit|bom|moodboard|handbook` — runs the workflow without any AI client. Pure-Python; same modules the MCP server uses.
+4. **The MCP server** — 80 tools spanning Blender control + asset libraries (PolyHaven, Sketchfab, AmbientCG) + AI 3D generation (Tripo3D, Meshy, Hyper3D, Hunyuan3D) + image gen (OpenAI, Codex CLI) + the interior-design layer (handbook reader, discovery, audit, project scaffold, snapshots, procurement, BoM, moodboard, style-aware furniture placement).
 
 [Watch the original tutorial](https://www.youtube.com/watch?v=lCyQ717DuzQ) (covers upstream usage; commands work identically in this fork).
 
