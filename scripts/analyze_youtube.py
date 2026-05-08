@@ -56,15 +56,22 @@ from typing import Optional
 GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta"
 
 MODEL_CANDIDATES = (
-    # GA models first — non-preview = stable, less 503 churn.
-    "gemini-3.1-flash-lite",        # GA; default per user direction 2026-05-08
+    # User direction 2026-05-08: prefer gemini-3-flash-preview.
+    # Empirically the most reliable free-tier video-ingestion model
+    # observed during Round 4 — produced 4 clean schema-conformant
+    # analyses where -3.1-pro-preview / -3.1-flash-lite-preview
+    # failed with 429 / 503 respectively.
+    "gemini-3-flash-preview",
+    # GA non-preview models — try when 3-flash-preview is busy.
+    # Currently (2026-05-08) 3.1-flash-lite passes text-only probes
+    # but 503s on video ingestion under load.
+    "gemini-3.1-flash-lite",
     "gemini-2.5-flash-lite",
     "gemini-2.5-flash",
-    # Preview / paid tier — try only if GA models exhausted.
+    # Preview / paid tier — last resort.
     "gemini-3.1-pro-preview",       # paid; usually 0 quota on free tier (429)
     "gemini-3.1-flash-lite-preview",# preview; sometimes 503
     "gemini-3-pro-preview",         # paid; usually 0 quota on free tier (429)
-    "gemini-3-flash-preview",       # free tier ✓ but preview can churn
     "gemini-pro-latest",
     "gemini-flash-latest",
     "gemini-2.5-pro",               # paid

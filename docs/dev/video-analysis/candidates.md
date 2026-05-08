@@ -2,8 +2,8 @@
 
 > **Purpose**: persisted index of YouTube tutorials surfaced via WebSearch on 2026-05-08. Each candidate is paired with the handbook pending item it could corroborate. Resume here when GEMINI_API_KEY rotation is done or when video-pipeline 503 churn clears.
 >
-> **Last updated**: 2026-05-08
-> **Surveyed corpus after Rounds 1-6**: 8 unique videos; 5 of 11 original single-source items still 1/8.
+> **Last updated**: 2026-05-08 (after Round 7)
+> **Surveyed corpus after Rounds 1-7**: **9 unique videos**; **4 of 11 original single-source items still 1/9** (down from 5 after Round 6, down from 7 after Round 4) plus 1 newly-surfaced single-source from Round 5 (HDRI-on-sphere preview).
 
 ---
 
@@ -24,26 +24,21 @@ These have an `analyses/<DATE>-<channel>-<slug>.md` file and have been folded in
 | 2026-05-08 | Blender Guru | Using fabric textures in Blender (Couch Part 5) | https://www.youtube.com/watch?v=zyrm9GH51Y4 | Round 4 (corroborated fabric displacement) |
 | 2026-05-08 | Blender Tutor | HDRI Lighting Fundamentals in Blender | https://www.youtube.com/watch?v=mgg066fvUqc | Round 5 (no corroboration; surfaced HDRI-on-sphere preview as 1/8) |
 | 2026-05-08 | CGi Jutsu | Chromatic Aberration and Lens Distortion in Compositing! \| Blender Tutorial | https://www.youtube.com/watch?v=dJFRExW0emA | Round 6 (corroborated Lens Distortion + Chromatic Aberration as one rule) |
+| 2026-05-08 | Francesco Milanese (CG Tutorials) | CryptoMatte for Masks with Motion Blur in Compositing \| Blender 4.3 Compositing Basics | https://www.youtube.com/watch?v=bn9arzKkPVk | Round 7 (corroborated Cryptomatte routing-mask pattern: rileyb3d denoise + this glare = pattern 2/9) |
 
 ---
 
-## Pending items remaining at 1/8 (5 original carryovers + 1 Round-5-surfaced)
+## Pending items remaining at 1/9 (4 original carryovers + 1 Round-5-surfaced)
 
 Each item below has its WebSearch-surfaced candidate list. Pick by EV: items with multiple Blender-specific dedicated tutorials are likeliest to corroborate on first try.
 
-### 🔥 1. Cryptomatte selective denoising (rileyb3d, Round 2 carryover)
+> **Round 7 lesson** (2026-05-08): niche practitioner techniques (Cryptomatte selective denoising, HDRI calibration spheres) lack dedicated tutorials. Two recovery strategies validated: (a) **re-mine** existing corpus for off-hand mentions (Round 3's compositor consensus came from this), (b) **generalize the rule** to a broader pattern that has more sources (Round 7's Cryptomatte routing pattern came from this — corroborated 2/9 even though the specific denoising application stayed 1/9). Apply these strategies before declaring a pending item dead.
 
-**Pending claim**: apply different denoise levels to walls vs. complex objects via View Layer crypto masks; rileyb3d uses this in a Cycles compositor chain.
+### ~~Cryptomatte selective denoising~~ (RESOLVED Round 7 via generalization)
 
-**Status**: WebSearch not yet done for this specific topic. Suggested searches:
-- `blender cycles cryptomatte selective denoise compositor`
-- `blender separate render denoise cryptomatte walls objects`
+The Cryptomatte selective-denoising rule was generalized in Round 7 to **"Cryptomatte as a routing mask for selective post-effects"** (architectural pattern: Cryptomatte → matte → Mix factor → selective effect application). 2/9 sources corroborate the pattern (rileyb3d denoise + Francesco Milanese glare). The specific denoising application is now framed as a valid instantiation of the corroborated pattern. Section landed in `docs/handbook/render-output.md`. Removed from active pending list.
 
-**Priority**: HIGH — Cryptomatte is well-documented in Blender, dedicated tutorials likely exist; "selective denoising" via Cryptomatte is the specific application that needs corroboration.
-
----
-
-### 🔥 2. HDRI calibration spheres for strength tuning (coral_lab, Round 1 carryover — OLDEST PENDING)
+### 🔥 1. HDRI calibration spheres for strength tuning (coral_lab, Round 1 carryover — OLDEST PENDING)
 
 **Pending claim**: chrome / gray / white / black reference spheres in scene tune HDRI strength against on-set photo before applying scene materials.
 
@@ -67,7 +62,7 @@ Each item below has its WebSearch-surfaced candidate list. Pick by EV: items wit
 
 ---
 
-### 3. Glossy ray amplification (noel_3d, Round 2 carryover)
+### 2. Glossy ray amplification (noel_3d, Round 2 carryover)
 
 **Pending claim**: multiply glossy by 5× and set diffuse to 0 — custom shader graph trick to enhance reflections without overexposing the diffuse base.
 
@@ -79,7 +74,7 @@ Each item below has its WebSearch-surfaced candidate list. Pick by EV: items wit
 
 ---
 
-### 4. 1-2 mm gaps between intersecting objects (nuno_silva, Round 2 carryover)
+### 3. 1-2 mm gaps between intersecting objects (nuno_silva, Round 2 carryover)
 
 **Pending claim**: leave a small gap between intersecting CG objects to generate physical contact shadows instead of fused-mesh look.
 
@@ -91,7 +86,7 @@ Each item below has its WebSearch-surfaced candidate list. Pick by EV: items wit
 
 ---
 
-### 5. 4-sphere HDRI calibration variant (coral_lab, Round 1 carryover)
+### 4. 4-sphere HDRI calibration variant (coral_lab, Round 1 carryover)
 
 **Pending claim**: 4-sphere setup (chrome + grey + white + black) is a refinement over the canonical 2-sphere (chrome + grey) for tighter exposure-latitude tuning.
 
@@ -101,7 +96,7 @@ Each item below has its WebSearch-surfaced candidate list. Pick by EV: items wit
 
 ---
 
-### 6. HDRI-on-sphere via Object Info (rotation preview) — Round 5 NEW single-source
+### 5. HDRI-on-sphere via Object Info (rotation preview) — Round 5 NEW single-source
 
 **Pending claim**: project HDRI onto a UV sphere via Object Info node to see the lighting direction without rendering — Blender Tutor 1/8.
 
