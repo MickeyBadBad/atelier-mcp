@@ -110,6 +110,32 @@ If any sphere fails its check, adjust the HDRI strength and re-render, not the c
 
 Once calibrated, apply room materials and re-check that the spheres still read correctly. Re-tune HDRI strength only if they drift; do NOT keep adjusting it as you add materials, or you'll chase your tail.
 
+## Volumetric atmosphere — Principled Volume + heterogeneous density (cross-tutorial consensus)
+
+Subtle interior haze adds depth and reads as "expensive cinematic" rather than "flat CG". Cross-tutorial agreement from 2 of 6 surveyed photoreal interior tutorials (art_of_3d_rendering "Blender Photorealistic Interior Render in Cycles Tutorial" + Lane Wallace "The Best Volumetric Fog Shader (Blender Tutorial)" — surveyed 2026-05): use a cube as a fog container, apply a Principled Volume / Volume Scatter shader, drive density with a Noise Texture + ColorRamp for heterogeneous density (not uniform), and set Anisotropy positive for visible god-rays through windows.
+
+Concrete recipe:
+- **Container**: Cube scaled to enclose the interior. Set the cube's *Display* to *Wire* in Object Properties so the volume material doesn't block viewport navigation (per Lane Wallace, "Best Volumetric Fog Shader Tutorial").
+- **Shader**: Principled Volume node connected to the cube's volume output. Density **0.005 - 0.05** (lower for subtle interior haze; 0.005 is art_of_3d's value for atmospheric humidity; 0.01 - 0.05 is Lane's "moody atmospheric" range). Color slightly warm or slightly cool to match the lighting palette.
+- **Heterogeneous density**: drive Density with `Noise Texture → ColorRamp → Density input` rather than a flat scalar. Noise scale **5 - 15** for room-scale variation; ColorRamp tightens the noise so the distribution looks like still-air dust rather than fog-machine output. Without this, haze reads as "uniform CG fog".
+- **Anisotropy 0.4 - 0.65** for visible god-rays. Higher anisotropy concentrates scattering along the light direction (the "shaft of light through window" effect); 0 = isotropic flat glow (per Blender Manual *Volume Scatter Node*, Latest, Anisotropy parameter — the *Volume Scatter Node* page documents Henyey-Greenstein anisotropy).
+
+The Blender Manual documents Principled Volume as the canonical "shader node for volumetric effects, including fog, smoke, and clouds" with Density, Color, and Anisotropy as the primary tunables (per Blender Manual *Principled Volume Node*, Latest). The cross-tutorial discipline on this codebase: turn it ON for hero shots that have direct sun/window light (the god-rays sell the room as architectural-photography); leave it OFF for evenly-lit rooms where uniform haze reads as smoke not air. **Cross-tutorial consensus: 2 of 6 surveyed (art_of_3d + Lane Wallace).**
+
+## Light portals for Cycles interior noise reduction (cross-tutorial consensus)
+
+Interior renders in Cycles fight a structural problem: paths fired into the scene mostly hit interior walls, very few reach the small window openings that are the actual light source. Result: the room looks correctly-lit but the noise floor is high — typically 2-3× more samples than a comparable exterior shot to land at the same noise level. **Light portals** flip this: place an Area Light covering the window opening, tick "Portal" in its properties, and Cycles starts aiming sampling rays AT that opening rather than randomly into the scene. Same sample count → cleaner image; equivalently, fewer samples → same noise floor.
+
+Concrete recipe:
+- **Add an Area Light** (Shift+A → Light → Area) sized to exactly cover the window opening from the inside.
+- **Tick Portal** in the light's Object Data Properties → Cycles section. The Portal flag tells Cycles "this opening leads to the world environment; aim rays through me" — it doesn't emit light itself, the HDRI / sun behind it does (per Blender Manual *Cycles → Light Settings*, Latest, Portal section: "Used in interior lighting, for accelerated sampling of indirect lighting through the openings").
+- **One portal per opening** — multiple windows means multiple portal Area Lights, each sized to its window.
+- **Portals don't replace the light source.** Keep your HDRI / Sun light intact; portals only re-direct sampling. With Portal alone and no environment, the room is dark.
+
+Two surveyed tutorials apply this to interior scenes (rileyb3d "Optimize Interior Renderings in Blender Cycles" + CynicatPro "Blender Tip: Lighting Interiors with Light Portals"). CynicatPro additionally explains the underlying mechanism: portals don't add light, they "guide the path-tracer to the light source" so the same per-pixel sample budget is spent on rays that actually hit the environment instead of vanishing into walls. **Cross-tutorial consensus: 2 of 6 surveyed (rileyb3d + CynicatPro).**
+
+In Blender 4.2+, a sibling primitive — the **Ray Portal BSDF** — adds general-purpose ray re-routing for visual-effects work (mirrors that look through space, etc.). That's a different feature; the classic Area-Light Portal flag is what this rule covers (per Blender Manual *Cycles → Light Settings → Portal*, Latest).
+
 ## Blender practical mapping
 
 Blender Light objects accept Kelvin two ways:

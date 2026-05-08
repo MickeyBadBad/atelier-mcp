@@ -31,6 +31,70 @@ Format per round:
 
 ---
 
+## 2026-05-08 — Round 4: Targeted corroboration for 4 pending items (4 new analyses)
+
+**Discipline note**: This round adds **4 new analyses**, hand-picked via WebSearch to target the 4 highest-priority single-source items recorded in Rounds 1-3 (light portals, volumetric, surface imperfections, fabric displacement). Targeted-search-then-analyze beats blind survey: each new video was selected specifically to corroborate or refute an existing single-source rule. **All 4 targets corroborated** — Round 4 lands 4 new handbook rules.
+
+**Analyses produced this round**:
+- `analyses/2026-05-08-cynicatpro-blender_tip_lighting_interiors_with_light_portals.md` — CynicatPro, "Blender Tip: Lighting Interiors with Light Portals" (corroborates rileyb3d Round 2 entry on light portals + adds ray-aiming explanation)
+- `analyses/2026-05-08-lane_wallace-the_best_volumetric_fog_shader_blender_tutorial.md` — Lane Wallace, "The Best Volumetric Fog Shader (Blender Tutorial)" (corroborates art_of_3d Round 2 entry on volumetric + adds Anisotropy 0.65 god-ray detail)
+- `analyses/2026-05-08-nik_kottmann-how_to_add_surface_imperfections_to_shaders_for_increased_re.md` — Nik Kottmann, "How to add Surface Imperfections to Shaders for increased Realism!" (corroborates Nuno Silva Round 2 entry on surface decals + adds Box Mapping + ColorRamp Compression mechanics)
+- `analyses/2026-05-08-blender_guru-using_fabric_textures_in_blender_couch_part_5.md` — Blender Guru, "Using fabric textures in Blender (Couch Part 5)" (corroborates coral_lab Round 1 entry on fabric displacement + adds Sheen + grain alignment)
+
+Total surveyed videos for the photoreal-interior dataset is now 6 unique sources (5 from Rounds 1-2 + 1 *targeted-mining* re-look in Round 3 + 4 new sources here = 9 analysis files, 6 unique videos: coral lab, noel_3d, nuno_silva, art_of_3d, rileyb3d, CynicatPro, Lane Wallace, Nik Kottmann, Blender Guru). Cross-source consensus thresholds quoted as N/6.
+
+### Cross-tutorial agreement applied this round
+
+**ADD-SECTION** `docs/handbook/lighting.md` § "Volumetric atmosphere — Principled Volume + heterogeneous density"
+  - Sources: art_of_3d (1/6 → 2/6 with Lane Wallace).
+  - Concrete recipe: cube container + Principled Volume + Density 0.005-0.05 + heterogeneous density via Noise+ColorRamp + Anisotropy 0.4-0.65 for god-rays.
+  - Primary citations: Blender Manual *Volume Scatter Node* (Anisotropy / Henyey-Greenstein); *Principled Volume Node*.
+
+**ADD-SECTION** `docs/handbook/lighting.md` § "Light portals for Cycles interior noise reduction"
+  - Sources: rileyb3d (1/6 → 2/6 with CynicatPro).
+  - Concrete recipe: Area Light at window opening + Portal flag in Cycles light props + 1 portal per opening + portals don't replace HDRI/Sun.
+  - Cross-ref Blender 4.2+ Ray Portal BSDF as a separate feature (visual-effects ray-routing, not interior noise).
+  - Primary citation: Blender Manual *Cycles → Light Settings → Portal*: "Used in interior lighting, for accelerated sampling of indirect lighting through the openings".
+
+**ADD-SECTION** `docs/handbook/materials.md` § "Surface imperfections — layered roughness + normal maps"
+  - Sources: nuno_silva (1/6 → 2/6 with Nik Kottmann); plus partial corroboration of underlying "break uniform roughness" principle from art_of_3d noise-driven roughness (1/6, but absorbed into the same rule via the ColorRamp-compression mechanism — same insight, different implementation).
+  - Concrete recipe: roughness map mixed via Mix Color (Screen) into Roughness input, Non-Color colorspace, ColorRamp compression to keep the imperfection in the 0.3-0.7 range; separate normal map for physical scratches at 0.1-0.3 strength; Box Mapping projection + Object coordinates for UV-free application.
+  - Primary citations: Blender Manual *Compositing → Color → Mix Node*; *Image Texture → Box Projection*; *Color Management → Non-Color Data*.
+
+**ADD-SECTION** `docs/handbook/materials.md` § "Subtle micro-displacement on textiles for tactile realism"
+  - Sources: coral_lab (1/6 → 2/6 with Blender Guru).
+  - Two complementary tactics: (1) Noise+Bump at strength 0.05-0.15 for low-frequency wrinkle, (2) Principled BSDF Sheen at Weight 0.5-1.0 / Roughness 0.3-0.6 for fuzzy-textile Fresnel halo.
+  - When-NOT-to-use: hard-flat textiles (canvas, denim, taut sheets).
+  - Primary citations: Blender Manual *Bump Node*; *Principled BSDF → Sheen* (describes Sheen as "useful for fabrics with fine fibers like velvet").
+
+### Pending corroboration carried forward
+
+After Round 4, 7 of the original 11 single-source items remain at 1/6:
+
+- Cryptomatte selective denoising (rileyb3d, 1/6)
+- 1-2 mm gaps between intersecting objects (nuno_silva, 1/6)
+- Glossy ray amplification — multiply glossy by 5×, set diffuse to 0 (noel_3d, 1/6)
+- HDRI calibration spheres (coral_lab, 1/6 — round-1 carryover, oldest pending item)
+- Lens distortion compositor node (art_of_3d, 1/6) — partially absorbed into Round 3 Glare-as-camera-lens rule, but the dedicated *Lens Distortion* node remains 1-source
+- Chromatic aberration as a distinct compositor node setup (nuno_silva, 1/6)
+- 4-sphere variant of HDRI calibration vs canonical 2-sphere (coral_lab, 1/6 — round-1 carryover for the addon-recommendation specifics)
+
+Suggested next-round targets (after another round of WebSearch-then-analyze): Cryptomatte for compositor selective denoising; Blender Guru "On-set HDRI Calibration" or VFX Pipeline reference videos for HDRI calibration spheres; an art-of-VFX channel for Lens Distortion + Chromatic Aberration mechanics.
+
+### Tests
+
+```
+uv run pytest tests/test_handbook.py tests/test_handbook_acceptance.py -v
+```
+
+Expected: 14/14 green (acceptance gates: at-least-one-chapter, every-chapter-has-citation, numeric-claims-have-nearby-citations, no-fabricated-section-markers, chapters-substantial ≥ 80 lines, chapters-have-sources-block).
+
+### Commit
+
+`<filled in by next commit>` — see `git log --oneline | grep "synthesis Round 4"`
+
+---
+
 ## 2026-05-08 — Round 3: Compositor finishing pass (re-mining the existing 5)
 
 **Discipline note**: This round adds **NO new analyses**. Instead, it re-mines the same 5 sources from Round 2 for consensus that the previous synthesis missed. Re-mining surfaced one strong cross-tutorial agreement that Round 2 had recorded as "single-source pending" (lens effects in compositor, attributed only to nuno_silva): in fact, the in-Blender compositor finishing pass is used by **3 of 5** surveyed tutorials, with **two specific node patterns reaching 2-source corroboration**. Recording this round to make the existing knowledge base earn its keep before paying for more video analyses.
