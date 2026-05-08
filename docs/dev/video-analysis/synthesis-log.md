@@ -31,6 +31,59 @@ Format per round:
 
 ---
 
+## 2026-05-08 — Round 7: Cryptomatte selective denoising → generalized to "Cryptomatte as routing mask"
+
+**Discipline note**: Targeted Round 2's rileyb3d "Cryptomatte selective denoising" carryover. WebSearch confirmed (twice, with different queries) that NO dedicated tutorial covers the specific selective-denoising application of Cryptomatte — same shape as Round 5's HDRI-calibration-spheres dead-end. Niche practitioner technique built from well-known primitives. Two recovery paths considered: (1) accept dead-end and move on, or (2) generalize the rule. Picked (2): the **architectural pattern** (Cryptomatte mask → Mix factor → selective post-effect application) IS corroborated when you don't insist on the specific effect being denoising.
+
+Analysis: Francesco Milanese applies the **same Cryptomatte-mask-routes-to-Mix-factor pattern** as rileyb3d, but uses it to gate **glare** to specific moving objects rather than denoising to specific walls. Different effect, same architecture. Round 7 lands the generalized pattern; the specific denoising-via-Cryptomatte application is now framed as one valid instantiation of a corroborated pattern, not as a single-source standalone rule.
+
+**Analyses produced this round**:
+- `analyses/2026-05-08-francesco_milanese_cg_tutorials-cryptomatte_for_masks_with_motion_blur_in_compositing_blende.md` — Francesco Milanese (CG Tutorials), "CryptoMatte for Masks with Motion Blur in Compositing | Blender 4.3 Compositing Basics" (model: `gemini-3-flash-preview`; clean first-try after the new GEMINI_API_KEY rotation, suggesting today's churn was partly free-tier-quota-related on the previous key)
+
+Total surveyed videos for the photoreal-interior dataset: **9 unique sources** (was 8 after Round 6).
+
+### Cross-tutorial agreement applied this round
+
+**ADD-SECTION** `docs/handbook/render-output.md` § "Cryptomatte as a routing mask for selective post-effects (cross-tutorial consensus)"
+
+  - Sources: rileyb3d denoising application (Round 2, 1/9) + Francesco Milanese glare application (Round 7, 1/9 NEW). The two converge on the **architectural pattern**, not the specific effect.
+  - Generalized recipe: enable Cryptomatte pass → Multi-layer OpenEXR output → Cryptomatte node + eyedropper pick → matte output → Mix node Factor input → image inputs receive unprocessed + processed versions.
+  - When-to-use criteria: effect is too aggressive uniformly (denoising), effect should only apply to subjects (glare on motion-blurred objects), or you need localized post-pass preview without re-render.
+  - Coverage-data property explained: Cryptomatte stores continuous coverage (not binary), so DOF, motion blur, and edge AA all work cleanly — superior to legacy ID Mask.
+  - Primary citations: Blender Manual *Render Layer → Cryptomatte Passes*; *Compositing → Mask → Cryptomatte Node*; corroborated by Francesco Milanese's explicit Cryptomatte-vs-ID-Mask comparison.
+  - Round 3's "Compositor finishing pass" §"When to skip" reference to "single-source pending Cryptomatte denoising" REMOVED (no longer accurate after this round's generalization).
+
+### Honest framing of partial corroboration
+
+The rule landed in `render-output.md` is **the architectural pattern**, not literally "selective denoising via Cryptomatte". The denoising-specific application remains **one valid instantiation** of the pattern but isn't independently 2-source corroborated. Treated as production-ready inference from the pattern; flagged in the handbook section so the reader knows.
+
+### Pending corroboration carried forward
+
+After Round 7, **4 of the original 11 single-source items remain at 1/9**:
+
+- 1-2 mm gaps between intersecting objects (nuno_silva, 1/9)
+- Glossy ray amplification — multiply glossy by 5×, set diffuse to 0 (noel_3d, 1/9)
+- HDRI calibration spheres for strength tuning (coral_lab, 1/9 — Round 1 carryover, oldest pending)
+- 4-sphere HDRI calibration variant (coral_lab, 1/9 — Round 1 carryover)
+
+Plus Round 5's HDRI-on-sphere-rotation-preview remains 1/9.
+
+**Pattern observed across Rounds 5, 7**: niche practitioner-level techniques (HDRI strength calibration via reference spheres, selective denoising via Cryptomatte) lack dedicated tutorials and are hard to corroborate via search-then-analyze. The right corroboration path for these is likely (a) re-mine existing analyses for off-hand mentions (Round 3's strategy), or (b) generalize the rule to a broader pattern that has more sources (Round 7's strategy here).
+
+### Tests
+
+```
+uv run pytest tests/test_handbook.py tests/test_handbook_acceptance.py -q
+```
+
+Expected: 14/14 green. Verified before commit.
+
+### Commit
+
+`<filled in by next commit>`
+
+---
+
 ## 2026-05-08 — Round 6: Targeted at Lens Distortion + Chromatic Aberration — both corroborated by one tutorial
 
 **Discipline note**: Pivoted from Round 5's HDRI-calibration target (which kept surfacing capture-side videos rather than the strength-tuning we needed) to a higher-EV pairing: **Lens Distortion + Chromatic Aberration**. Hypothesis going in: one tutorial would likely cover both, since they're commonly tuned together as a "photographic finish" pass. Hypothesis confirmed — CGi Jutsu's "Chromatic Aberration and Lens Distortion in Compositing!" walks both effects via the **same** Blender compositor node (`Lens Distortion`), using `Dispersion` for chromatic aberration and `Distort` for barrel/pincushion. Two single-source pending items collapse into one corroborated rule.

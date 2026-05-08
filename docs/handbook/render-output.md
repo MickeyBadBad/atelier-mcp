@@ -124,7 +124,43 @@ Glare BEFORE color grade matters: grading on top of bloomed highlights gives con
 
 ### When to skip the compositor
 
-Construction-grade orthographic elevations and material reference renders — the deliverables that go to the contractor sheet, not the client deck — ship raw. No Glare, no grade, no vignette. The point of those renders is dimensional and chromatic literalness, not mood. This pairs with the **Standard view transform** exception called out in §"View set composition" item 5 (orthographic plans). Cross-reference: the rileyb3d analysis uses the compositor for **selective Cryptomatte denoising**, which is structurally a different concern from grading and is recorded as a single-source pending technique in the synthesis log (1/5 surveyed).
+Construction-grade orthographic elevations and material reference renders — the deliverables that go to the contractor sheet, not the client deck — ship raw. No Glare, no grade, no vignette. The point of those renders is dimensional and chromatic literalness, not mood. This pairs with the **Standard view transform** exception called out in §"View set composition" item 5 (orthographic plans).
+
+## Cryptomatte as a routing mask for selective post-effects (cross-tutorial consensus)
+
+Beyond the global compositor finishing pass (Glare → grade → Lens Distortion → vignette), there's a second architectural pattern surveyed across photoreal tutorials: **use a Cryptomatte node's matte output as the factor input on a Mix node that selectively applies a post-effect to specific objects.** The pattern is the same regardless of which effect you gate; only the effect changes. Two of nine surveyed tutorials apply this pattern explicitly:
+
+| Source | Cryptomatte gates which effect | Goal |
+|---|---|---|
+| rileyb3d "Optimize Interior Renderings in Blender Cycles" (Round 2) | **Denoising** — different denoise levels for walls vs. complex objects | Reduce flat-wall over-smoothing while keeping detail noise on furniture |
+| Francesco Milanese "CryptoMatte for Masks with Motion Blur" (Round 7) | **Glare** — Glare streaks applied only to specific moving objects | Prevent background highlights from polluting motion-blur streaks |
+
+**Generalized recipe** (the architectural pattern, not specific to either effect):
+
+```
+Render Layers → Cryptomatte (Object/Material/Asset pass)
+                  ↓ matte output
+               Mix node (Factor input)
+                  ├─ image input 1: render WITHOUT the effect
+                  └─ image input 2: render WITH the effect (denoise / glare / color-correct / sharpen / blur)
+                  ↓
+                Composite output
+```
+
+Concrete steps:
+1. **Enable a Cryptomatte pass** in View Layer properties → Passes → Cryptomatte. Choose Object (per-object masks), Material (per-material), or Asset (per-asset-group), depending on grouping needs (per Blender Manual *Render Layer → Cryptomatte Passes*, Latest).
+2. **Set output to Multi-layer OpenEXR** so the Cryptomatte data is preserved in the rendered file (per Blendergrid, *From Blender to Natron with Cryptomattes and AOVs*; corroborated by Francesco Milanese's tutorial).
+3. **Add a Cryptomatte node in the Compositor**, connect render image to its image input, click the "Pick" button + eyedropper-click the object(s) you want masked (per Blender Manual *Compositing → Mask → Cryptomatte Node*, Latest).
+4. **Route the matte output to a Mix node's Factor input.** The two Mix inputs receive (a) the unprocessed render and (b) a processed version. Where the Cryptomatte mask is 1.0, the processed version shows; where it's 0.0, the unprocessed shows; intermediate values blend (handles motion blur and AA cleanly because Cryptomatte stores coverage data, not binary masks — per Francesco Milanese vs. legacy ID Mask comparison).
+
+**When to use this pattern over a global effect**:
+- The effect is too aggressive when applied uniformly (rileyb3d's denoising case — flat walls over-smooth and lose subtle texture variation)
+- The effect should only apply to specific subjects (Francesco Milanese's glare case — background lights would otherwise pollute the motion-blur streaks)
+- You need to preview a localized post-pass change without re-rendering (the artisticrender.com workflow advantage of "change objects/materials instead of re-rendering")
+
+**Cryptomatte stores coverage, not binary masks** — the `Pick` output divides scene elements by colors assigned automatically; the `Matte` output is a continuous-value mask that handles depth of field, motion blur, and anti-aliasing on edges (per Blender Manual *Cryptomatte Node*, Latest; corroborated by Francesco Milanese's explicit comparison against legacy ID Mask which is binary).
+
+**Cross-tutorial consensus**: 2 of 9 surveyed (rileyb3d + Francesco Milanese). Note: the **specific** rileyb3d application (Cryptomatte → mix → DIFFERENT denoising for different objects) is single-source within this pattern; the **architectural pattern** itself is corroborated. If you want to apply the pattern to denoising specifically, treat the technique as production-ready but be aware it's an inference from the corroborated pattern, not from two tutorials applying it identically.
 
 ## View set composition
 
