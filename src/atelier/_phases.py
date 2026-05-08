@@ -13,6 +13,7 @@ from typing import Iterable
 PHASES: dict[str, list[str]] = {
     "discovery": [
         "get_scene_info", "get_object_info", "asset_query_help",
+        "bpy_inspect",
     ],
     "diagnostics": [
         "check_services",

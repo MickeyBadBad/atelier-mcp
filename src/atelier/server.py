@@ -334,6 +334,65 @@ def get_object_info(
     return result
 
 @mcp.tool()
+@tool_envelope
+def bpy_inspect(
+    ctx: Context,
+    qualname: str,
+    max_props: int = 80,
+    max_doc_chars: int = 4000,
+) -> str:
+    """Look up Blender Python API info live from the running Blender,
+    so the LLM doesn't have to write `import bpy; help(...)` boilerplate
+    just to see an operator's parameters or an RNA type's properties.
+
+    The official Blender Lab MCP server bundles the .rst API reference
+    statically; this tool takes the opposite approach — pull data from
+    the *connected* Blender via introspection. Two advantages:
+    1. Signatures match the actually-loaded version, not stale docs.
+       Useful when Blender 5.x renamed/added/removed operators or
+       socket names since training data.
+    2. Dynamic context wins: `bpy.context.scene.cycles` shows the live
+       value's properties, including any addon-injected ones.
+
+    What you get per kind of qualname:
+    - `bpy.ops.<category>.<name>` (operator) → idname + parameters list
+      ({name, type, description, default}) + truncated docstring
+    - `bpy.types.<TypeName>` (RNA type) → properties list + methods list
+      + docstring
+    - `bpy.<module>` (module) → sorted public attrs + docstring
+    - `bpy.context.scene.cycles`, `bpy.data.objects['Cube']` (live value)
+      → kind=value with repr + python_type + docstring
+    - functions → signature + docstring
+
+    Use this BEFORE writing `execute_blender_code` calls that touch
+    obscure operators or properties. Avoids the "I made up this
+    parameter name" failure mode.
+
+    Examples:
+    - `bpy_inspect("bpy.ops.mesh.primitive_uv_sphere_add")` → see the
+      segments / ring_count / radius / location / scale params with
+      their actual int/float/vector types and defaults
+    - `bpy_inspect("bpy.types.ShaderNodeBsdfPrincipled")` → enumerate
+      every input socket name in the version Blender's running
+    - `bpy_inspect("bpy.context.scene.render.image_settings")` →
+      file_format / quality / color_mode etc. on the LIVE settings
+
+    Parameters:
+    - qualname: dotted Python path starting with `bpy.`
+    - max_props: cap on properties / parameters / attrs in the response
+                 (default 80; stops runaway lists for big RNA types)
+    - max_doc_chars: truncate docstrings to this many chars (default 4000)
+    """
+    blender = get_blender_connection()
+    result = _check_addon_result(blender.send_command("bpy_inspect", {
+        "qualname": qualname,
+        "max_props": max_props,
+        "max_doc_chars": max_doc_chars,
+    }))
+    return result
+
+
+@mcp.tool()
 @telemetry_tool("get_viewport_screenshot")
 def get_viewport_screenshot(
     ctx: Context,

@@ -154,6 +154,33 @@ def _resilient_get(url, max_retries=3, backoff_base=1.7, timeout=30, **kwargs):
     raise last_err
 
 
+def _bpy_inspect_default(prop):
+    """Best-effort JSON-safe extraction of an RNA property's default.
+
+    Used by BlenderMCPServer.bpy_inspect when summarizing operator
+    parameters. Vector / array defaults (Vector, Color, Quaternion,
+    arrays) are coerced to plain lists; scalar defaults pass through;
+    types that don't expose `default`/`default_value` (or where access
+    raises) yield None.
+    """
+    try:
+        for attr in ("default", "default_value"):
+            if not hasattr(prop, attr):
+                continue
+            d = getattr(prop, attr)
+            if d is None:
+                continue
+            try:
+                if hasattr(d, "__iter__") and not isinstance(d, (str, bytes)):
+                    return list(d)
+            except Exception:
+                pass
+            return d
+    except Exception:
+        pass
+    return None
+
+
 def _resilient_download_to_file(url, dest_path, max_retries=4, backoff_base=1.7,
                                 timeout=120, chunk_size=1024 * 1024,
                                 headers=None):
@@ -487,6 +514,7 @@ class BlenderMCPServer:
         handlers = {
             "get_scene_info": self.get_scene_info,
             "get_object_info": self.get_object_info,
+            "bpy_inspect": self.bpy_inspect,
             "get_viewport_screenshot": self.get_viewport_screenshot,
             "verify_object_grounded": self.verify_object_grounded,
             "execute_code": self.execute_code,
@@ -696,6 +724,147 @@ class BlenderMCPServer:
         if object_name is not None:
             return self._get_object_info_single(object_name)
         return {"error": "Provide either `object_name` (str) or `names` (list[str])"}
+
+    def bpy_inspect(self, qualname, max_props=80, max_doc_chars=4000):
+        """Walk a dotted qualname under `bpy.*` and return structured API info.
+
+        Saves the LLM from writing `import bpy; help(...)` boilerplate when
+        it just wants to know "what parameters does this operator take" or
+        "what properties does this RNA type have". Pulls the answer from
+        the *running* Blender's introspection — so signatures match the
+        actually-loaded version, not stale RST docs.
+
+        Examples:
+        - bpy_inspect("bpy.ops.mesh.primitive_uv_sphere_add") → operator
+          with `parameters` (segments / ring_count / radius / etc., types,
+          defaults, descriptions)
+        - bpy_inspect("bpy.types.Object") → type with `properties` (name,
+          type, readonly, description) and `methods` (name list)
+        - bpy_inspect("bpy.context.scene.cycles") → live value with kind
+          + repr + python_type
+        - bpy_inspect("bpy.data") → module-like with sorted attr list
+
+        Parameters:
+        - qualname: dotted path starting with 'bpy.'
+        - max_props: cap on properties / parameters / attrs in the response
+                     (truncates long lists; default 80)
+        - max_doc_chars: cap on the docstring (default 4000)
+        """
+        import inspect as _ins
+        try:
+            parts = (qualname or "").split('.')
+            if not parts or parts[0] != 'bpy':
+                return {"error": "qualname must start with 'bpy.' (got "
+                                 f"'{qualname}')"}
+            obj = bpy
+            seen = ['bpy']
+            for part in parts[1:]:
+                if part == "":
+                    continue
+                try:
+                    obj = getattr(obj, part)
+                except AttributeError:
+                    return {"error": f"resolve failed at "
+                                     f"'{'.'.join(seen)}': '{part}' "
+                                     "not found"}
+                seen.append(part)
+
+            out = {"qualname": qualname}
+
+            # Docstring — cheap, useful for everything
+            try:
+                doc = _ins.getdoc(obj)
+            except Exception:
+                doc = None
+            if doc:
+                if len(doc) > max_doc_chars:
+                    out["doc"] = doc[:max_doc_chars] + "..."
+                else:
+                    out["doc"] = doc
+
+            # Operator: bpy.ops.<category>.<name>
+            if callable(obj) and hasattr(obj, 'idname'):
+                out["kind"] = "operator"
+                try:
+                    out["idname"] = obj.idname()
+                except Exception:
+                    pass
+                try:
+                    rna = obj.get_rna_type()
+                    params = []
+                    for p in rna.properties:
+                        if p.identifier == 'rna_type':
+                            continue
+                        params.append({
+                            "name": p.identifier,
+                            "type": p.type,
+                            "description": (p.description or "")[:200],
+                            "default": _bpy_inspect_default(p),
+                        })
+                        if len(params) >= max_props:
+                            break
+                    out["parameters"] = params
+                except Exception as e:
+                    out["parameters_error"] = f"{type(e).__name__}: {e}"
+                return out
+
+            # RNA type: bpy.types.X
+            if hasattr(obj, 'bl_rna') and obj is not bpy:
+                out["kind"] = "type"
+                try:
+                    rna = obj.bl_rna
+                    props = []
+                    for p in rna.properties:
+                        if p.identifier == 'rna_type':
+                            continue
+                        props.append({
+                            "name": p.identifier,
+                            "type": p.type,
+                            "readonly": bool(getattr(p, "is_readonly", False)),
+                            "description": (p.description or "")[:200],
+                        })
+                        if len(props) >= max_props:
+                            break
+                    out["properties"] = props
+                except Exception as e:
+                    out["properties_error"] = f"{type(e).__name__}: {e}"
+                try:
+                    methods = [f.identifier for f in rna.functions]
+                    out["methods"] = methods[:max_props]
+                except Exception:
+                    pass
+                return out
+
+            # Plain Python module
+            if _ins.ismodule(obj):
+                out["kind"] = "module"
+                try:
+                    attrs = sorted(a for a in dir(obj) if not a.startswith('_'))
+                    out["attrs"] = attrs[:max_props]
+                except Exception:
+                    pass
+                return out
+
+            # Function / method
+            if callable(obj):
+                out["kind"] = "function"
+                try:
+                    out["signature"] = str(_ins.signature(obj))
+                except Exception:
+                    pass
+                return out
+
+            # Fallback: live value
+            out["kind"] = "value"
+            try:
+                r = repr(obj)
+                out["repr"] = r[:200] + ("..." if len(r) > 200 else "")
+            except Exception:
+                pass
+            out["python_type"] = type(obj).__name__
+            return out
+        except Exception as e:
+            return {"error": f"inspect failed: {type(e).__name__}: {e}"}
 
     def _get_object_info_single(self, name):
         """Get detailed information about a specific object"""
