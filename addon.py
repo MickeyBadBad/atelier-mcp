@@ -6819,6 +6819,65 @@ def _load_credentials_from_sidecar():
 
 
 # --------------------------------------------------------------------------
+# Auto-enable service toggles based on persisted credentials.
+#
+# The N-panel `Use X` checkboxes are bpy.types.Scene properties — they
+# live in the .blend file. Whenever Blender starts with the default
+# startup file (i.e. without a project blend loaded), every scene prop
+# resets to its register-time default (mostly False), so users found
+# their painstakingly-configured Sketchfab / Tripo3D / Meshy / OpenAI
+# integrations un-ticked at every Blender launch.
+#
+# This handler infers the user's intent from persisted state (sidecar
+# JSON + AddonPreferences) and re-ticks the toggles. It's hooked into
+# bpy.app.handlers.load_post so it fires on every blend open, plus
+# called once from register() so addon-enable does the right thing
+# even before any blend is opened.
+# --------------------------------------------------------------------------
+
+import bpy.app.handlers as _bpy_handlers
+
+
+@_bpy_handlers.persistent
+def _atelier_auto_enable_services(_dummy):
+    """Tick service-enable scene props for services with valid creds.
+
+    Free, no-auth libraries (PolyHaven, ambientCG) are always on.
+    Keyed services (Sketchfab, Hyper3D, Tripo3D, Meshy, OpenAI,
+    Hunyuan3D) flip on iff their API key is non-empty in
+    AddonPreferences. Hunyuan3D needs both secret_id AND secret_key.
+
+    Wrapped in broad try/except — the handler runs on every blend
+    load, including odd states (read-only blends, fresh installs,
+    fault recovery) where attribute access can transiently fail. We
+    never want a startup hook to raise.
+    """
+    try:
+        addon_entry = bpy.context.preferences.addons.get(__name__)
+        if not addon_entry:
+            return
+        prefs = addon_entry.preferences
+        scene = bpy.context.scene
+        if scene is None:
+            return
+        # No-auth, free libraries — always on
+        scene.blendermcp_use_polyhaven = True
+        scene.blendermcp_use_ambientcg = True
+        # Keyed services
+        scene.blendermcp_use_sketchfab = bool(getattr(prefs, "sketchfab_api_key", ""))
+        scene.blendermcp_use_hyper3d   = bool(getattr(prefs, "hyper3d_api_key", ""))
+        scene.blendermcp_use_tripo3d   = bool(getattr(prefs, "tripo3d_api_key", ""))
+        scene.blendermcp_use_meshy     = bool(getattr(prefs, "meshy_api_key", ""))
+        scene.blendermcp_use_openai    = bool(getattr(prefs, "openai_api_key", ""))
+        scene.blendermcp_use_hunyuan3d = bool(
+            getattr(prefs, "hunyuan3d_secret_id", "")
+            and getattr(prefs, "hunyuan3d_secret_key", "")
+        )
+    except Exception as e:
+        print(f"[blender-mcp] auto-enable hook failed: {e}")
+
+
+# --------------------------------------------------------------------------
 # Service registry — minimal seed for Sprint 5; full god-class refactor in
 # Sprint 10 reuses the same Service dataclass and field names.
 # --------------------------------------------------------------------------
@@ -7447,6 +7506,20 @@ def register():
     except Exception as e:
         print(f"[blender-mcp] credential restore on register failed: {e}")
 
+    # Auto-tick service toggles based on persisted credentials. Service
+    # use-flags are scene-level bool props (default=False) — they reset
+    # to defaults whenever Blender opens a fresh blend file. That meant
+    # users who had Tripo3D/Sketchfab/etc. set up across sessions kept
+    # finding their N-panel unchecked. The load_post handler reapplies
+    # the auto-tick on every blend open; the initial call here covers
+    # the addon-enable + already-loaded-blend case.
+    if _atelier_auto_enable_services not in bpy.app.handlers.load_post:
+        bpy.app.handlers.load_post.append(_atelier_auto_enable_services)
+    try:
+        _atelier_auto_enable_services(None)
+    except Exception as e:
+        print(f"[blender-mcp] initial auto-enable failed: {e}")
+
     print("BlenderMCP addon registered")
 
 def unregister():
@@ -7454,6 +7527,13 @@ def unregister():
     if hasattr(bpy.types, "blendermcp_server") and bpy.types.blendermcp_server:
         bpy.types.blendermcp_server.stop()
         del bpy.types.blendermcp_server
+
+    # Detach the auto-enable handler so addon-disable cleanly removes it
+    if _atelier_auto_enable_services in bpy.app.handlers.load_post:
+        try:
+            bpy.app.handlers.load_post.remove(_atelier_auto_enable_services)
+        except Exception:
+            pass
 
     bpy.utils.unregister_class(BLENDERMCP_PT_Panel)
     bpy.utils.unregister_class(BLENDERMCP_OT_SetFreeTrialHyper3DAPIKey)
