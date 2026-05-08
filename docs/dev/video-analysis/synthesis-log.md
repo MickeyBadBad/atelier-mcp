@@ -31,6 +31,68 @@ Format per round:
 
 ---
 
+## 2026-05-08 — Round 3: Compositor finishing pass (re-mining the existing 5)
+
+**Discipline note**: This round adds **NO new analyses**. Instead, it re-mines the same 5 sources from Round 2 for consensus that the previous synthesis missed. Re-mining surfaced one strong cross-tutorial agreement that Round 2 had recorded as "single-source pending" (lens effects in compositor, attributed only to nuno_silva): in fact, the in-Blender compositor finishing pass is used by **3 of 5** surveyed tutorials, with **two specific node patterns reaching 2-source corroboration**. Recording this round to make the existing knowledge base earn its keep before paying for more video analyses.
+
+**Analyses re-synthesized** (no new files this round):
+- `analyses/2026-05-01-coral_lab-Creating_a_photorealistic_Japandi_interior_in_Blender.md`
+- `analyses/2026-05-01-coral_lab-japandi-gemini-pipeline-v2.md` (same source as above; counts once)
+- `analyses/2026-05-01-noel_3d-photorealistic_interior_lighting_tutorial_in_blender_40_cycl.md`
+- `analyses/2026-05-01-nuno_silva-the_7_step_formula_to_photorealistic_interior_3d_renders.md`
+- `analyses/2026-05-01-art_of_3d_rendering-blender_photorealistic_interior_render_in_cycles_tutorial.md`
+- `analyses/2026-05-01-rileyb3d-optimize_interior_renderings_in_blender_cycles.md`
+
+5 unique source videos.
+
+### Cross-tutorial agreement applied this round
+
+**ADD-SECTION** `docs/handbook/render-output.md` § "Compositor finishing pass (cross-tutorial consensus)"
+
+Three sub-rules, each at or above the 2-source threshold:
+
+| Sub-rule | Sources | Detail |
+|---|---|---|
+| **Glare node for bloom/streaks** | 3/5 | art_of_3d (Streaks mode), noel_3d (Fog Glow mode), nuno_silva (Lumion bloom + lens-flare equivalent). Modes documented; mode choice = aesthetic intent. Default codebase: Fog Glow @ threshold 1.0 unflared / Streaks @ 1.5 cinematic. |
+| **Color Balance node for grading** | 2/5 | art_of_3d + noel_3d both name-check Color Balance specifically. Default speakeasy-palette starting values written into the handbook (Lift R0.5/G0.5/B0.45, Gain R1.0/G1.0/B1.05). 3/5 use compositor color grading in some form. |
+| **Vignette (5-10% edge darkening)** | 2/5 | art_of_3d (compositor Mix-node + radial mask) + nuno_silva (Lumion external pipeline). Both converge on subtle (5-10%), not heavy (30%); heavier reads as Instagram-cheap. |
+
+Plus **order-of-operations** rule (Glare BEFORE color grade for consistent highlight spillover) and **when-to-skip** rule (construction-grade orthographic deliverables ship raw — no compositor — same logic that puts those on Standard view transform).
+
+Primary citations added: Blender Manual *Compositing → Filter → Glare Node*; *Compositing → Color → Color Balance Node*; *Compositing → Color → Mix Node*; *Compositing → Operations performed sequentially*.
+
+### Pending corroboration carried forward
+
+Round 2's "Single-tutorial findings" list — none gained corroboration this round (re-mining did not surface 2nd sources for them within the existing 5):
+
+- Volumetric lighting / Volume Scatter density 0.005 (art_of_3d, 1/5)
+- Light portals — area light in window opening (rileyb3d, 1/5)
+- Cryptomatte selective denoising (rileyb3d, 1/5) — referenced in the new section's "When to skip" paragraph as a structurally distinct concern, not yet a rule
+- Surface imperfections / decals — dust / stains / scratches (nuno_silva, 1/5)
+- 1-2 mm gaps between intersecting objects (nuno_silva, 1/5)
+- Glossy ray amplification — multiply glossy by 5×, set diffuse to 0 (noel_3d, 1/5)
+- Micro-roughness via noise texture (art_of_3d, 1/5)
+- Subtle displacement on fabrics (coral lab, 1/5)
+- HDRI calibration spheres (coral lab, 1/5 — round-1 carryover)
+- Lens distortion compositor node (art_of_3d, 1/5) — partially absorbed into the Glare-as-camera-lens rule but the dedicated *Lens Distortion* node is still 1-source
+- Chromatic aberration as a distinct node setup (nuno_silva, 1/5)
+
+Next analyses should target: light portals, volumetric, surface imperfections, displacement on fabrics — these are concrete techniques with high handbook value once corroborated.
+
+### Tests
+
+```
+uv run pytest tests/test_handbook.py tests/test_handbook_acceptance.py -v
+```
+
+14/14 passed. Acceptance gates green: at-least-one-chapter, every-chapter-has-citation, numeric-claims-have-nearby-citations, no-fabricated-section-markers, chapters-substantial (≥ 80 lines), chapters-have-sources-block.
+
+### Commit
+
+`<filled in by next commit>` — see `git log --oneline | grep "synthesis Round 3"`
+
+---
+
 ## 2026-05-01 — Round 2: Cross-tutorial photoreal interior consensus (4 new analyses)
 
 **Analyses synthesized**:

@@ -66,6 +66,52 @@ This convention mirrors real-estate / architectural photography practice. Proper
 
 In Blender this is a one-line change to **Render Properties › Color Management › Exposure**: render at +0, then -1.0, then +1.0, saving each output to `renders/<zone>/<shot>_-1.png`, `_0.png`, `_+1.png`. Do **not** bracket by changing light intensity — exposure is a post-transform display knob (per Blender Manual *Color Management*, Latest, Exposure).
 
+## Compositor finishing pass (cross-tutorial consensus)
+
+Interior renders ship with an in-Blender compositor pass for grade and bloom — surveyed in **3 of 5** production photoreal interior tutorials (art_of_3d_rendering, noel_3d, rileyb3d use the Blender compositor; nuno_silva does the equivalent in Lumion + Photoshop; only coral_lab ships raw render with no comp). The Blender Manual frames the compositor as "post-processing the rendered image" via "compositing nodes ... operations performed sequentially" (per Blender Manual *Compositing*, Latest, Introduction; cross-tutorial agreement from 3/5 named photoreal interior tutorials surveyed 2026-05).
+
+### Glare node — bloom and streaks
+
+Use the **Glare** node to add light-bleed effects that real cinema cameras and architectural lenses produce. Choose the mode by intent:
+
+- **Streaks** — anamorphic / star-shaped flare from highlights. Used by art_of_3d_rendering for the speakeasy / cinematic look. Most aggressive; reads as "stylized photography".
+- **Fog Glow** — soft halo around bright sources. Used by noel_3d for warm-luxury interior lighting. Subtle; reads as "atmospheric haze in a lit room".
+- **Bloom / Ghosts** — brighter sources spread; ghost reflections of internal lens elements. Used selectively for sci-fi / film-look pieces.
+
+The Blender Manual notes Glare "simulates optical effects in a camera lens" and lists the Streaks / Fog Glow / Bloom / Ghosts modes (per Blender Manual *Compositing → Filter → Glare Node*, Latest). Mode is the single biggest aesthetic decision; **Threshold** (which highlights bloom) is the secondary tunable. Defaults for this codebase: Fog Glow at threshold 1.0 for unflared interiors; Streaks at threshold 1.5 for cinematic. **Cross-tutorial consensus: 2/5 surveyed name-checked Glare directly** (art_of_3d Streaks + noel_3d Fog Glow), with a 3rd corroborating use in nuno_silva's external pipeline (Lumion bloom + lens flares).
+
+### Color grading nodes
+
+After the Glare pass, color grade with one of:
+
+- **Color Balance** node — three-way grade (Lift / Gamma / Gain or Offset / Power / Slope). Used by art_of_3d_rendering AND noel_3d. The most common interior-render grade tool.
+- **RGB Curves** — per-channel tone shaping. art_of_3d_rendering pairs it with Color Balance.
+- **LUT** (Color Lookup Table via the *Color Lookup* compositor node) — applies a preset look from a `.cube` file. nuno_silva uses one in the Lumion pipeline equivalent.
+
+The Blender Manual describes Color Balance as offering "Lift Gamma Gain or ASC-CDL controls" for non-destructive color grading (per Blender Manual *Compositing → Color → Color Balance Node*, Latest). Default starting point for the codebase's locked speakeasy palette: Color Balance with Gamma 1.0, then nudge Lift toward warm neutral (≈ R 0.5 / G 0.5 / B 0.45) and Gain toward cool highlights (≈ R 1.0 / G 1.0 / B 1.05). **Cross-tutorial consensus: 2/5 use Color Balance specifically** (art_of_3d + noel_3d); 3/5 use compositor color grading in some form.
+
+### Vignette
+
+A subtle radial darkening at the frame edges focuses attention on the room's negative-space anchor. Build via a Mix node: rendered image + radial gradient mask + Multiply blend at ≈ 85% factor. The Blender Manual covers the underlying Mix node (per Blender Manual *Compositing → Color → Mix Node*, Latest). A vignette is typically a **5-10%** darkening at the edges, not 30%; heavier vignettes read as Instagram-cheap rather than architectural-photography. **Cross-tutorial consensus: 2/5** (art_of_3d compositor-vignette via Mix-node mask + nuno_silva external-pipeline vignette via Lumion).
+
+### Order of operations
+
+The standard compositor chain for a hero interior render is:
+
+```
+Render Layers  →  Glare (Fog Glow or Streaks)
+                     →  Color Balance (Lift / Gamma / Gain)
+                          →  RGB Curves (optional fine tone-shaping)
+                               →  Vignette (Mix node + radial mask, optional)
+                                    →  Composite output
+```
+
+Glare BEFORE color grade matters: grading on top of bloomed highlights gives consistent spillover; grading first then blooming the graded result tends to over-saturate the bloom (per Blender Manual *Compositing → Operations performed sequentially*, Latest, Introduction).
+
+### When to skip the compositor
+
+Construction-grade orthographic elevations and material reference renders — the deliverables that go to the contractor sheet, not the client deck — ship raw. No Glare, no grade, no vignette. The point of those renders is dimensional and chromatic literalness, not mood. This pairs with the **Standard view transform** exception called out in §"View set composition" item 5 (orthographic plans). Cross-reference: the rileyb3d analysis uses the compositor for **selective Cryptomatte denoising**, which is structurally a different concern from grading and is recorded as a single-source pending technique in the synthesis log (1/5 surveyed).
+
 ## View set composition
 
 A complete hero delivery for a single zone is **5 shots**:
