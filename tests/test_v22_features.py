@@ -419,7 +419,12 @@ def test_hyper3d_auto_import_polls_until_done_then_imports(monkeypatch):
 
 def test_render_image_returns_preview_when_requested(tmp_path, monkeypatch):
     """render_image with return_preview=True returns a base64
-    thumbnail in the response under `preview_b64` (PNG <= 256px)."""
+    thumbnail in the response under `preview_b64`.
+
+    Implementation uses Blender's native image API (no Pillow), so we
+    mock bpy.data.images.load to return a fake Image whose .save_render
+    writes a small JPEG to the requested path. The base64 encode +
+    cleanup logic is real."""
     import sys, os, base64
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     if "addon" in sys.modules:
@@ -427,17 +432,40 @@ def test_render_image_returns_preview_when_requested(tmp_path, monkeypatch):
     import addon
 
     rendered_path = str(tmp_path / "out.png")
-    # Stub the actual render to write a small valid PNG (1px transparent)
     PNG_1PX = base64.b64decode(
         b"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYA"
         b"AAAAYAAjCB0C8AAAAASUVORK5CYII=")
+
     def fake_render(*a, **kw):
         with open(rendered_path, "wb") as f:
             f.write(PNG_1PX)
     monkeypatch.setattr(addon.bpy.ops.render, "render", fake_render)
-    addon.bpy.path.abspath = lambda p: p  # mock returns passthrough
+    addon.bpy.path.abspath = lambda p: p
     addon.bpy.context.scene.render.filepath = rendered_path
-    addon.bpy.context.scene.camera = object()  # truthy
+    addon.bpy.context.scene.camera = object()
+
+    # Fake image data-block that mimics the bits of bpy.types.Image we use
+    JPEG_4BYTE = b"\xff\xd8\xff\xd9"  # SOI + EOI = minimal valid JPEG marker
+    class FakeImage:
+        def __init__(self, path):
+            self.path = path
+            self.size = [800, 450]
+        def scale(self, w, h):
+            self.size = [w, h]
+        def save_render(self, dest):
+            with open(dest, "wb") as f:
+                f.write(JPEG_4BYTE)
+
+    loaded = []
+    def fake_load(path, check_existing=False):
+        img = FakeImage(path)
+        loaded.append(img)
+        return img
+    addon.bpy.data.images.load = fake_load
+    addon.bpy.data.images.remove = lambda img: None
+
+    # render_image's _build_preview reads/writes scene.render.image_settings
+    # (.file_format, .quality). MagicMock auto-handles attr round-trips.
 
     server = addon.BlenderMCPServer.__new__(addon.BlenderMCPServer)
     out = server.render_image(filepath=rendered_path, return_preview=True,
@@ -446,8 +474,13 @@ def test_render_image_returns_preview_when_requested(tmp_path, monkeypatch):
     assert "preview_b64" in out
     assert isinstance(out["preview_b64"], str)
     assert len(out["preview_b64"]) > 0
-    # Should be valid base64
-    base64.b64decode(out["preview_b64"])
+    decoded = base64.b64decode(out["preview_b64"])
+    assert decoded.startswith(b"\xff\xd8")  # JPEG magic
+    # Verify the fake image was loaded + scaled to the requested cap
+    assert loaded, "bpy.data.images.load was never called"
+    assert loaded[0].size[0] <= 128 and loaded[0].size[1] <= 128, (
+        f"thumbnail not scaled to <= 128px: got {loaded[0].size}"
+    )
 
 
 def test_zero_result_search_includes_query_help_hint(monkeypatch):

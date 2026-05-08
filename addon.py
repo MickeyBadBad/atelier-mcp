@@ -1293,24 +1293,59 @@ class BlenderMCPServer:
         render_image(return_preview=True) so the LLM can see the result
         without a separate file read.
 
+        Implementation uses Blender's native image API (bpy.data.images)
+        rather than Pillow — Blender's bundled Python doesn't ship
+        Pillow, and we don't want to require the user to install it
+        into Blender's vendored Python env.
+
         Falls back to None on any failure — the caller still has the
-        full filepath."""
-        import base64, io
+        full filepath, so failure here is non-fatal."""
+        import base64
+        import os
+        import tempfile
+        img = None
+        tmp_path = None
         try:
-            from PIL import Image
-        except ImportError:
-            # Blender ships PIL/Pillow; if it's missing we just skip.
-            return None
-        try:
-            with Image.open(image_path) as im:
-                im.thumbnail((max_dim, max_dim), Image.LANCZOS)
-                buf = io.BytesIO()
-                if im.mode in ("RGBA", "LA", "P"):
-                    im = im.convert("RGB")
-                im.save(buf, format="JPEG", quality=70)
-                return base64.b64encode(buf.getvalue()).decode("ascii")
+            # Load the source render into Blender's image data-block pool
+            img = bpy.data.images.load(image_path, check_existing=False)
+            w, h = img.size[0], img.size[1]
+            if w <= 0 or h <= 0:
+                return None
+            # Compute thumbnail dimensions preserving aspect ratio
+            scale = float(max_dim) / max(w, h)
+            if scale < 1.0:
+                tw, th = max(1, int(w * scale)), max(1, int(h * scale))
+                img.scale(tw, th)
+            # Save as JPEG to a temp file so we can read the bytes back
+            tmp_fd, tmp_path = tempfile.mkstemp(suffix=".jpg",
+                                                prefix="blendermcp_thumb_")
+            os.close(tmp_fd)
+            scene = bpy.context.scene
+            saved_format = scene.render.image_settings.file_format
+            saved_quality = scene.render.image_settings.quality
+            try:
+                scene.render.image_settings.file_format = 'JPEG'
+                scene.render.image_settings.quality = 70
+                img.save_render(tmp_path)
+            finally:
+                scene.render.image_settings.file_format = saved_format
+                scene.render.image_settings.quality = saved_quality
+            with open(tmp_path, "rb") as fp:
+                return base64.b64encode(fp.read()).decode("ascii")
         except Exception:
             return None
+        finally:
+            # Clean up: remove the loaded image data-block + temp file
+            if img is not None:
+                try:
+                    bpy.data.images.remove(img)
+                except Exception:
+                    pass
+            if tmp_path and os.path.exists(tmp_path):
+                try:
+                    os.unlink(tmp_path)
+                except Exception:
+                    pass
 
     def render_image(self, filepath, resolution=None, samples=64,
                      engine="CYCLES", use_gpu=True,

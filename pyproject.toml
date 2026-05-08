@@ -52,7 +52,6 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "pillow>=12.2.0",
     "pytest>=8.0.0",
     "pytest-mock>=3.12.0",
 ]
