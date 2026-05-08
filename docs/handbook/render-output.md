@@ -94,7 +94,20 @@ The Blender Manual describes Color Balance as offering "Lift Gamma Gain or ASC-C
 
 A subtle radial darkening at the frame edges focuses attention on the room's negative-space anchor. Build via a Mix node: rendered image + radial gradient mask + Multiply blend at ≈ 85% factor. The Blender Manual covers the underlying Mix node (per Blender Manual *Compositing → Color → Mix Node*, Latest). A vignette is typically a **5-10%** darkening at the edges, not 30%; heavier vignettes read as Instagram-cheap rather than architectural-photography. **Cross-tutorial consensus: 2/5** (art_of_3d compositor-vignette via Mix-node mask + nuno_silva external-pipeline vignette via Lumion).
 
-### Order of operations
+### Lens Distortion node — dispersion + barrel together (cross-tutorial consensus)
+
+A single Blender compositor node — **`Lens Distortion`** — handles both **chromatic aberration** (color fringing on high-contrast edges) and **barrel / pincushion warping** (subtle geometric curvature). Two pending single-source items from Rounds 2-3 (art_of_3d's Lens Distortion node use + nuno_silva's chromatic aberration use) merge here: the CGi Jutsu tutorial "Chromatic Aberration and Lens Distortion in Compositing!" (surveyed 2026-05) clarifies they are not two separate setups — they are two parameters on one node.
+
+Concrete parameters and ranges:
+
+- **Dispersion** — chromatic aberration. Real values: **0.01 - 0.03**. CGi Jutsu specifies **0.02** as the production sweet spot. Above 0.03 the color fringing reads as "video glitch" not "real lens" (per CGi Jutsu, "Don't over-use this imperfection, because it starts hurting the viewer's eyes after a while").
+- **Distort** — barrel (positive) or pincushion (negative) curvature. Real values: **0.01 - 0.02**. CGi Jutsu specifies **0.01**. Above 0.05 reads as "GoPro fisheye" not architectural lens (per Blender Manual *Compositing → Lens Distortion Node*, Latest, which describes Distort as the "barrel/pincushion warp" parameter).
+- **Fit** checkbox — **always enable**. Without it, positive Distort values leave black borders in the corners. The Manual confirms: "Scales the image so black areas are not visible (only works for positive distortion)" (per Blender Manual *Compositing → Lens Distortion Node*, Latest, Fit option).
+- **Jitter** checkbox — leave OFF for hero shots. The Manual notes Jitter "adds jitter to the distortion — faster, but noisier" (per Blender Manual, Latest); useful for animation previews, not stills.
+
+The **Lens Distortion node belongs after the color grade** in the compositor chain — applying the lens artifact AFTER tone is established matches how a real photograph is captured (the lens is between the scene and the sensor, before any grading). Round 6 surveyed agreement: 2 of 8 surveyed photoreal interior tutorials apply this in some form (art_of_3d_rendering uses Lens Distortion in its compositor chain alongside Glare and Color Balance; CGi Jutsu walks the same node with explicit recommended values; nuno_silva applies the chromatic-aberration half via Lumion + Photoshop — equivalent effect, different toolchain).
+
+### Order of operations (revised)
 
 The standard compositor chain for a hero interior render is:
 
@@ -102,11 +115,12 @@ The standard compositor chain for a hero interior render is:
 Render Layers  →  Glare (Fog Glow or Streaks)
                      →  Color Balance (Lift / Gamma / Gain)
                           →  RGB Curves (optional fine tone-shaping)
-                               →  Vignette (Mix node + radial mask, optional)
-                                    →  Composite output
+                               →  Lens Distortion (Dispersion 0.02 + Distort 0.01, Fit ON)
+                                    →  Vignette (Mix node + radial mask, optional)
+                                         →  Composite output
 ```
 
-Glare BEFORE color grade matters: grading on top of bloomed highlights gives consistent spillover; grading first then blooming the graded result tends to over-saturate the bloom (per Blender Manual *Compositing → Operations performed sequentially*, Latest, Introduction).
+Glare BEFORE color grade matters: grading on top of bloomed highlights gives consistent spillover; grading first then blooming the graded result tends to over-saturate the bloom (per Blender Manual *Compositing → Operations performed sequentially*, Latest, Introduction). Lens Distortion AFTER grade matters for the same reason — the lens artifact is a sensor-side effect, last in the optical path.
 
 ### When to skip the compositor
 

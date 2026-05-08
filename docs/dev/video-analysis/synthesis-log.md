@@ -31,6 +31,53 @@ Format per round:
 
 ---
 
+## 2026-05-08 — Round 6: Targeted at Lens Distortion + Chromatic Aberration — both corroborated by one tutorial
+
+**Discipline note**: Pivoted from Round 5's HDRI-calibration target (which kept surfacing capture-side videos rather than the strength-tuning we needed) to a higher-EV pairing: **Lens Distortion + Chromatic Aberration**. Hypothesis going in: one tutorial would likely cover both, since they're commonly tuned together as a "photographic finish" pass. Hypothesis confirmed — CGi Jutsu's "Chromatic Aberration and Lens Distortion in Compositing!" walks both effects via the **same** Blender compositor node (`Lens Distortion`), using `Dispersion` for chromatic aberration and `Distort` for barrel/pincushion. Two single-source pending items collapse into one corroborated rule.
+
+**Analyses produced this round**:
+- `analyses/2026-05-08-cgi_jutsu-chromatic_aberration_and_lens_distortion_in_compositing_blen.md` — CGi Jutsu, "Chromatic Aberration and Lens Distortion in Compositing! | Blender Tutorial" (model: `gemini-3-flash-preview` per user direction; first attempt 503'd, retry succeeded after 60s + the script's built-in HTTP backoff)
+
+Total surveyed videos for the photoreal-interior dataset: **8 unique sources** (was 7 after Round 5).
+
+### Cross-tutorial agreement applied this round
+
+**ADD-SECTION** `docs/handbook/render-output.md` § "Lens Distortion node — dispersion + barrel together (cross-tutorial consensus)"
+
+  - Sources: art_of_3d_rendering (1/8 — Lens Distortion was listed as a Round 2 single-source pending item) + CGi Jutsu (1/8 NEW); plus nuno_silva (1/8 — chromatic aberration via Lumion + Photoshop — equivalent effect, different toolchain). Strict 2-source threshold for the Blender-native Lens Distortion node: art_of_3d + CGi Jutsu.
+  - Closes both pending items in one rule: **Lens Distortion node** (was art_of_3d 1/6) + **Chromatic Aberration distinct setup** (was nuno_silva 1/6) → these were never separate setups; they're two parameters on the same compositor node.
+  - Concrete recipe: Dispersion 0.01 - 0.03 (CGi Jutsu sweet spot 0.02); Distort 0.01 - 0.02 (CGi Jutsu sweet spot 0.01); Fit checkbox ALWAYS on for positive Distort to remove corner gaps; Jitter OFF for hero shots; node belongs AFTER color grade in the chain (sensor-side, last in optical path).
+  - Primary citations: Blender Manual *Compositing → Lens Distortion Node* (Distort / Dispersion / Fit / Jitter parameters); CGi Jutsu's empirical "0.02 / 0.01" sweet spots.
+  - Round 3's compositor chain diagram updated to insert Lens Distortion between Color Balance and Vignette.
+
+### Pending corroboration carried forward
+
+After Round 6, **5 of the original 11 single-source items remain at 1/8** (down from 7 after Round 4):
+
+- Cryptomatte selective denoising (rileyb3d, 1/8)
+- 1-2 mm gaps between intersecting objects (nuno_silva, 1/8)
+- Glossy ray amplification (noel_3d, 1/8)
+- HDRI calibration spheres for strength tuning (coral_lab, 1/8 — Round 1 carryover, oldest pending)
+- 4-sphere HDRI calibration variant (coral_lab, 1/8 — Round 1 carryover for the addon-recommendation specifics)
+
+Plus Round 5's newly-surfaced single-source: HDRI-on-sphere via Object Info (rotation preview, distinct from calibration), Blender Tutor 1/8.
+
+Round 4's tentative Glare-as-camera-lens absorption of "Lens distortion" is now properly named and corroborated (Round 6's Lens Distortion section is the Blender-native rule; the Glare section in Round 3 covered bloom/streaks, a separate effect).
+
+### Tests
+
+```
+uv run pytest tests/test_handbook.py tests/test_handbook_acceptance.py -v
+```
+
+Expected: 14/14 green. Verified before commit.
+
+### Commit
+
+`<filled in by next commit>`
+
+---
+
 ## 2026-05-08 — Round 5: Targeted at HDRI calibration spheres — no corroboration, model swap landed
 
 **Discipline note**: Targeted Round 1's longest-pending carryover (HDRI calibration spheres, 1/6 → still 1/7 after this round). Search-then-analyze did NOT land 2-source corroboration this attempt — the analyzed video covers a **related but distinct** technique. Recording the negative result honestly: search specificity matters; "HDRI calibration spheres" matched a video about HDRI-on-sphere rotation preview, not chrome/grey calibration for strength tuning. Round 5 still ships two real artifacts: the new analysis file (single-source for a fresh technique) and a model-preference update in `scripts/analyze_youtube.py`.
