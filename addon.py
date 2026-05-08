@@ -23,7 +23,7 @@ from contextlib import redirect_stdout, suppress
 bl_info = {
     "name": "Atelier (Blender MCP)",
     "author": "Atelier MCP / BlenderMCP",
-    "version": (2, 5, 0),
+    "version": (2, 6, 0),
     "blender": (3, 0, 0),
     "location": "View3D > Sidebar > BlenderMCP",
     "description": "Atelier — interior-design-focused MCP server for Blender. Compatible with Claude Desktop, Cursor, Codex, and other MCP clients.",
@@ -4177,7 +4177,7 @@ class BlenderMCPServer:
         """
         report = {
             "blender_version": list(bpy.app.version),
-            "addon_version": "2.2.0+fork.1",
+            "addon_version": "2.6.0+fork.1",
             "services": {},
         }
 

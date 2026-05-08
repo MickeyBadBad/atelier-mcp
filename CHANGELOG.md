@@ -6,6 +6,26 @@ This is an actively maintained community fork of [ahujasid/blender-mcp](https://
 
 ---
 
+## [2.6.0+fork.1] — 2026-05-08
+
+Quality-of-life fixes from live verification + new live-introspection MCP tool + 3 rounds of photoreal-interior handbook synthesis from production tutorials. No BC-break.
+
+### Added
+- **`bpy_inspect(qualname, max_props=80, max_doc_chars=4000)`** — new MCP tool. Walks any dotted path under `bpy.*` in the *running* Blender and returns structured info: operators (idname + parameters with type/description/default + docstring), RNA types (properties + methods + docstring), live values (resolved chain + repr + python_type), modules (sorted attrs), error path with pinpoint resolve failure. Inspired by the official Blender Lab MCP server's bundled-RST approach but takes the opposite path — pull from the connected Blender so signatures match the actually-loaded version, not a stale snapshot. Wired into the `discovery` phase of `list_tools_by_phase`.
+- **Photoreal handbook §"Compositor finishing pass"** in `docs/handbook/render-output.md` — Round 3 synthesis of 5 surveyed photoreal interior tutorials. Three sub-rules at 2-source consensus: Glare node (Streaks vs Fog Glow vs Lumion-bloom equivalent — 3/5), Color Balance node with speakeasy-palette starting values (2/5), Vignette at 5-10% subtle edge darkening (2/5). Plus order-of-operations rule (Glare BEFORE grade) and skip-criteria for construction-grade orthographic deliverables. Primary citations to Blender Manual *Compositing → Filter → Glare Node*, *Color → Color Balance Node*, *Color → Mix Node*.
+- **Photoreal handbook synthesis Rounds 1 + 2** (landed earlier in v2.5 development; documented here for completeness): HDRI exposure-calibration spheres (Debevec 1998 SIGGRAPH primary citation), Cycles shadow-less transparent shader pattern (Light Path `Is Shadow Ray`), real-world UV scaling discipline (Adobe Substance PBR Guide), Mix Color Overlay tinting pattern, OpenImageDenoise + adaptive-sampling-threshold-0.01 cross-tutorial consensus, expanded shadow-shader rule to cover glass windows (rileyb3d), camera lens range nuance (24-28 mm spatial / 45-50 mm vignette / 70+ mm detail).
+- **Video research pipeline + analyzer skill** (landed earlier in v2.5; documented here): YouTube → schema-md analyzer using Comfly Gemini native YouTube ingestion, structured per-tutorial deliverables under `docs/dev/video-analysis/analyses/`, synthesis-log workflow at `docs/dev/video-analysis/synthesis-log.md`.
+
+### Fixed
+- **`render_image(return_preview=True)` ships a real preview again.** The v2.2 implementation used Pillow which Blender 5.1's bundled Python doesn't ship — `_build_preview` silently fell back to None, so `preview_b64` was missing from the response. Replaced with Blender-native `bpy.data.images.load → scale → save_render` to a JPEG temp file → base64. No external Python dep. Live-verified: returns ~10 KB base64 JPEG thumbnail. Also drops `pillow` from `[dependency-groups].dev`.
+- **N-panel service toggles auto-restore from persisted credentials.** Previously every Blender restart reset all `Use X` checkboxes (Sketchfab / Hyper3D / Tripo3D / Meshy / OpenAI / Hunyuan) to OFF, even though the API keys were preserved across sessions via the sidecar JSON + AddonPreferences. Cause: the toggles are `bpy.types.Scene` properties (default=False); scene props live in the .blend file, not user prefs, so opening with the default startup file resets them. Fix: a persistent `bpy.app.handlers.load_post` handler infers user intent from persisted credentials — PolyHaven and ambientCG (no auth, free) always on; keyed services on iff their API key is non-empty in AddonPreferences; Hunyuan3D on iff both `secret_id` AND `secret_key` are present.
+- **`addon_version` field in `check_services` response** synced to package version. Was stuck at "2.2.0+fork.1" through v2.3 / v2.4 / v2.5 releases; now matches `pyproject.toml` and reads correct each release.
+
+### Migration
+No action required. `bpy_inspect` is additive; existing tool calls unchanged. The compositor section in `render-output.md` is documentation-only (no behavior change). Live integrations (render preview + service toggles) auto-fix on next addon reload — no user action needed beyond restarting Blender once after upgrading.
+
+---
+
 ## [2.5.0+fork.1] — 2026-04-30
 
 **Product repositioning: from "Blender MCP server with design tools" to "AI interior design workflow toolkit (with Blender MCP as one component)".**

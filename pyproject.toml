@@ -1,6 +1,6 @@
 [project]
 name = "atelier-mcp"
-version = "2.5.0+fork.1"
+version = "2.6.0+fork.1"
 description = "Atelier — interior-design-focused MCP server for Blender. Handbook-grounded AI workflow (discovery questionnaire, citation-backed quality gates, procurement / BoM, moodboard, style-aware furniture). Compatible with Claude Desktop, Cursor, Codex, and any MCP client."
 readme = "README.md"
 requires-python = ">=3.10"
