@@ -56,15 +56,19 @@ from typing import Optional
 GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta"
 
 MODEL_CANDIDATES = (
-    "gemini-3.1-pro-preview",
-    "gemini-3.1-flash-lite-preview",
-    "gemini-3-pro-preview",
-    "gemini-3-flash-preview",
+    # GA models first — non-preview = stable, less 503 churn.
+    "gemini-3.1-flash-lite",        # GA; default per user direction 2026-05-08
+    "gemini-2.5-flash-lite",
+    "gemini-2.5-flash",
+    # Preview / paid tier — try only if GA models exhausted.
+    "gemini-3.1-pro-preview",       # paid; usually 0 quota on free tier (429)
+    "gemini-3.1-flash-lite-preview",# preview; sometimes 503
+    "gemini-3-pro-preview",         # paid; usually 0 quota on free tier (429)
+    "gemini-3-flash-preview",       # free tier ✓ but preview can churn
     "gemini-pro-latest",
     "gemini-flash-latest",
-    "gemini-2.5-flash",
-    "gemini-2.5-pro",
-    "gemini-2.0-flash",
+    "gemini-2.5-pro",               # paid
+    "gemini-2.0-flash",             # free-tier baseline
 )
 
 REPO_ROOT = Path(__file__).resolve().parent.parent

@@ -31,6 +31,56 @@ Format per round:
 
 ---
 
+## 2026-05-08 — Round 5: Targeted at HDRI calibration spheres — no corroboration, model swap landed
+
+**Discipline note**: Targeted Round 1's longest-pending carryover (HDRI calibration spheres, 1/6 → still 1/7 after this round). Search-then-analyze did NOT land 2-source corroboration this attempt — the analyzed video covers a **related but distinct** technique. Recording the negative result honestly: search specificity matters; "HDRI calibration spheres" matched a video about HDRI-on-sphere rotation preview, not chrome/grey calibration for strength tuning. Round 5 still ships two real artifacts: the new analysis file (single-source for a fresh technique) and a model-preference update in `scripts/analyze_youtube.py`.
+
+**Analyses produced this round**:
+- `analyses/2026-05-08-blender_tutor-hdri_lighting_fundamentals_in_blender.md` — Blender Tutor, "HDRI Lighting Fundamentals in Blender" (model: `gemini-2.5-flash-lite`; `gemini-3.1-flash-lite` 503'd on video ingestion despite passing text-only probe — Google's free-tier video pipeline was overloaded at run time)
+
+Total surveyed videos for the photoreal-interior dataset: **7 unique sources** (was 6 after Round 4).
+
+### What this analysis covered
+
+The video uses a **UV sphere with the HDRI mapped onto it via Object Info node** as a rotation-preview surrogate — a way to see "where the key light / sun is coming from in this HDRI" before committing to a render. This is **not** the same technique as Round 1's calibration-sphere rule (which uses chrome / grey / white / black reference spheres to TUNE HDRI strength against real-world appearance).
+
+**No corroboration applied to handbook this round.** The two techniques are:
+
+| Round 1 rule (coral_lab, 1/7) | This video (Blender Tutor, 1/7 NEW) |
+|---|---|
+| Reference chrome + grey balls in scene | UV sphere with HDRI projected via Object Info |
+| Compare against on-set photos | Visualize HDRI direction without rendering |
+| Goal: physically-accurate strength | Goal: rotation alignment |
+| Sources: Debevec 1998 SIGGRAPH | Sources: HDRI-Wrangler / common Blender practice |
+
+Both are valid techniques worth documenting eventually. Neither has 2-source corroboration yet.
+
+### Single-tutorial findings recorded — pending second source
+
+In addition to all 7 carryovers from Round 4 (now phrased as 1/7 not 1/6), Round 5 adds:
+
+- **HDRI-on-sphere via Object Info node — rotation preview** (Blender Tutor, 1/7 NEW). To corroborate: look for another tutorial that uses a textured sphere or similar surrogate to PREVIEW HDRI direction without test-rendering the full scene.
+
+### Project changes applied this round
+
+**EDIT** `scripts/analyze_youtube.py` — `MODEL_CANDIDATES` reorder. User direction (2026-05-08): make `gemini-3.1-flash-lite` (GA non-preview) the default analysis model. Reordered so the chain tries GA models first (`gemini-3.1-flash-lite`, `gemini-2.5-flash-lite`, `gemini-2.5-flash`) before falling through to preview/paid variants. Rationale: GA models are non-preview and less prone to 503 churn than the `-preview` aliases; previously the chain led with `gemini-3.1-pro-preview` which always 429'd on free tier, wasting one round-trip per call.
+
+This round's run path was: `gemini-3.1-flash-lite` → 503 (video pipeline overload that minute) → `gemini-2.5-flash-lite` → 200 OK with 7457-char output. The fallback chain works; the preferred model will land cleanly when Google's video ingestion isn't congested.
+
+### Lesson learned for next round
+
+**Search query specificity** matters. "HDRI calibration spheres" surfaces both the on-set VFX technique (Round 1's actual rule) AND HDRI-mapping-to-sphere previews (different concept). Next attempt should use queries like "Blender HDRI strength tuning chrome ball gray ball reference photography" or "Blender PaulDebevec calibration ball IBL" to target the exact Round 1 application.
+
+### Tests
+
+Handbook acceptance gate not re-run this round (no handbook content changed). Will run on next round when content lands.
+
+### Commit
+
+`<filled in by next commit>`
+
+---
+
 ## 2026-05-08 — Round 4: Targeted corroboration for 4 pending items (4 new analyses)
 
 **Discipline note**: This round adds **4 new analyses**, hand-picked via WebSearch to target the 4 highest-priority single-source items recorded in Rounds 1-3 (light portals, volumetric, surface imperfections, fabric displacement). Targeted-search-then-analyze beats blind survey: each new video was selected specifically to corroborate or refute an existing single-source rule. **All 4 targets corroborated** — Round 4 lands 4 new handbook rules.
