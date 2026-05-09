@@ -181,6 +181,41 @@ Fabrics are the surfaces where "perfectly flat CG" reads worst. A real cushion h
 
 When NOT to use micro-displacement: hard-flat fabrics like canvas, denim, or taut bedsheets — they ARE close to flat in reality. Reserve this for textiles where the fuzz/loop structure IS the visual identity of the material. **Cross-tutorial consensus: 2 of 6 surveyed (coral_lab + Blender Guru).**
 
+### Brushed metal — anisotropic reflection beyond default Principled BSDF (cross-tutorial consensus)
+
+Plain `Principled BSDF` with `Metallic=1.0` + `Roughness=0.3` renders as **isotropic** metal — light scatters uniformly in all directions, like a polished ball bearing. Real brushed brass / brushed steel / a saucepan base / a brass bar fitting all have **directional grain** that stretches reflections perpendicular to the brush direction. Two surveyed photoreal tutorials (Blender Guru "Introduction to Anisotropic Shading"; Ryan King Art "Procedural Brushed Metal Material") agree on the **meta-rule** — default Principled BSDF needs additional directional structure for production-grade brushed metal — but disagree on which technique to use. Both are valid; choose by surface geometry:
+
+#### Approach A — Anisotropic BSDF + Tangent Node (best for curved surfaces)
+
+For cylindrical / radial geometry like the cafe's **brass bar fittings**, **brass door peephole**, or any cup/handle:
+
+1. Use the **Anisotropic BSDF** shader (or Principled BSDF with `Anisotropic > 0` in Blender 4.x+; the doc links back to the Anisotropic BSDF for fundamentals).
+2. **Roughness must be > 0** (e.g. 0.1 - 0.35 for cafe brass per the existing roughness-banding row above). Per Blender Guru: *"if it's zero, you'll just see crisp glossy reflections"* and the anisotropic effect disappears entirely.
+3. Wire a **Tangent node** into the Anisotropic BSDF's Tangent input. Choose the *UV Map* mode and route it to the object's UV layout — this is what controls whether reflection stretches **radially** (around a saucepan base) or **linearly** (along a brushed plate).
+4. Rotate UV islands by **90°** to flip the stretch direction (vertical brush vs. horizontal brush) without re-laying-out the model.
+5. Optional: feed a small **noise texture** into the Anisotropic BSDF's *Rotation* input for **irregular** brushing — mimics manual / mechanical brushing rather than perfectly machine-straight grain (per Blender Guru tutorial; Cycles Tangent + Rotation pattern documented in the Blender Manual *Anisotropic BSDF* page).
+
+The cost: requires UV unwrapping, doesn't work without it on procedural geometry. The benefit: physically accurate radial / linear reflection on curved surfaces — what real brass fittings actually do.
+
+#### Approach B — Stretched procedural noise (best for flat surfaces, no UV needed)
+
+For flat geometry like brass **signage plates**, **flat door push-bars**, or **architectural inlay strips**:
+
+1. Plain Principled BSDF, `Metallic=1.0`.
+2. Add a **Noise Texture** node, route through a **Mapping** node with the X-axis (or Y) Scale set to **40** to stretch the noise into long brush lines along that axis (per Ryan King Art).
+3. **Noise Detail = 15** (max) keeps the grain crisp at high resolution; **Distortion = 3.0** introduces subtle wobble so the brush lines don't read as perfectly straight CG (per Ryan King Art).
+4. Drive the Principled BSDF *Roughness* with a **separate** unstretched noise + ColorRamp to range **0.213 - 0.579** — independent roughness variation (decoupled from the brush-line color pattern) prevents the "perfect uniform" CG look.
+5. Add a **Bump node** at strength **0.010** for tactile micro-detail (per Ryan King Art).
+6. Optional final **Hue/Saturation/Value** node for global brightness tuning of brass tone — useful when matching a real brass swatch.
+
+The cost: doesn't reproduce true radial reflection on curved geometry. The benefit: **no UV unwrap required**, faster setup, fully procedural — works on any mesh as-is.
+
+#### Cafe-specific brass recipe (combines both)
+
+For the locked cafe palette (`#b08d57` brushed brass for bar fittings + door peephole), apply Approach A on the curved bar fittings (UV unwrap once, reuse) and Approach B on flat plates (signage, sconce mounting). Roughness band **0.25 - 0.35** for both per the cafe-palette row in the roughness-banding table earlier in this chapter.
+
+**Cross-tutorial consensus**: 2 of 10 surveyed photoreal tutorials (Blender Guru + Ryan King Art) agree default Principled BSDF needs anisotropic / directional treatment for production-grade brushed metal. They disagree on implementation; both approaches documented above with their respective trade-offs. Primary citations: Blender Manual *Anisotropic BSDF* node page; Blender Manual *Principled BSDF* (the *Anisotropic* and *Anisotropic Rotation* inputs); Cycles Tangent + Rotation interaction documented at the Manual *Tangent Node* page.
+
 ## Practical Blender mapping
 
 The Blender Principled BSDF *"combines multiple layers into a single easy-to-use node … based on the OpenPBR Surface shading model, and provides parameters compatible with similar PBR shaders found in other software, such as the Disney and Standard Surface models. Image textures painted or baked from software like Substance Painter may be directly linked to the corresponding input in this shader"* (per the Blender Manual, Principled BSDF page, summarized via search-result excerpt because the manual host returned 403 to direct WebFetch at fetch time). The most-used inputs:

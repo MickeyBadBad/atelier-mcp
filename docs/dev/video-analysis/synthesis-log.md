@@ -31,6 +31,70 @@ Format per round:
 
 ---
 
+## 2026-05-09 — Round 8: Brushed metal — meta-rule consensus despite implementation disagreement
+
+**Discipline note**: First round driven by the **rewritten analyzer** (commit `a7341af`, google-genai SDK + Gemini best-practices baked in: media_resolution=LOW default, text-after-video, token usage logging). User asked for "real-task experience report"; this round IS the report. Two videos analyzed at LOW media resolution; tokens logged so cost is now visible. Topic chosen for cafe-project applicability (brass fittings are in the locked Friends Cafe palette, no existing handbook recipe).
+
+The two tutorials agree on the **meta-rule** (default Principled BSDF needs additional directional structure for production-grade brushed metal) but disagree on which technique to use. Round 7 strategy applied: encode the meta-rule + document both implementations with trade-offs, rather than declaring one approach canonical when the field is split.
+
+**Analyses produced this round**:
+- `analyses/2026-05-09-ryan_king_art-procedural_brushed_metal_material_blender_tutorial.md` — Ryan King Art, "Procedural Brushed Metal Material (Blender Tutorial)". Procedural-noise approach: Mapping Scale X=40 stretches noise into brush lines, no UV needed. Concrete values: Noise Detail 15 (max), Distortion 3.0, Bump 0.010, ColorRamp metallic 0.213-0.579, secondary unstretched noise drives roughness independently.
+- `analyses/2026-05-09-blender_guru-introduction_to_anisotropic_shading_in_blender.md` — Blender Guru, "Introduction to Anisotropic Shading in Blender". Anisotropic BSDF + Tangent Node approach: UV unwrap required, Tangent Node UV mode controls radial vs linear, optional noise drives Anisotropic Rotation for irregular brushing. Roughness must be > 0 (creator quoted: "if it's zero, you'll just see crisp glossy reflections").
+
+Total surveyed videos for the photoreal-interior dataset: **11 unique sources** (was 9 after Round 7).
+
+### Cross-tutorial agreement applied this round
+
+**ADD-SECTION** `docs/handbook/materials.md` § "Brushed metal — anisotropic reflection beyond default Principled BSDF (cross-tutorial consensus)"
+
+  - Sources: Blender Guru + Ryan King Art (2/11 on the meta-rule).
+  - Meta-rule corroborated: default Principled BSDF Metallic=1 / Roughness=0.3 is **isotropic** — real brushed metal needs directional structure (radial or linear). Both creators agree on this; both reject defaults; they propose different mechanisms.
+  - Implementation A (Blender Guru): Anisotropic BSDF + Tangent Node from UV — best for curved geometry (saucepans, brass handles, columns); Roughness > 0 required; UV rotation controls stretch direction.
+  - Implementation B (Ryan King Art): Stretched procedural noise — best for flat geometry (signage, plates); no UV needed; Mapping Scale X=40 + Noise Detail 15 + Distortion 3.0 + Bump 0.010 + secondary noise on Roughness.
+  - Cafe-specific recipe added: Approach A for curved bar fittings + door peephole (use locked palette's `#b08d57` + roughness 0.25-0.35); Approach B for flat plates / signage. Pulls forward the existing cafe-palette roughness row from earlier in the chapter.
+  - Primary citations: Blender Manual *Anisotropic BSDF*; *Principled BSDF Anisotropic / Anisotropic Rotation inputs*; *Tangent Node*.
+
+### Rewritten-analyzer experience report
+
+This is the first round using the SDK-based analyzer. Observations relative to yesterday's raw-HTTP path:
+
+| Metric | Yesterday (raw HTTP) | Today (SDK + LOW default) |
+|---|---|---|
+| Token visibility | none (had to infer cost from trace) | every run prints `tokens=total:N video:N text:N thoughts:N` |
+| Token cost (CGi Jutsu, 3min, baseline) | 10,473 video tokens (MEDIUM-equivalent) | 10,473 at LOW (same — turns out we got LOW by default last time) |
+| Token cost (Ryan King Art, ~9min) | not measured | 52,770 video tokens at LOW (≈ 167K at HIGH; 3.17× saving validated) |
+| Token cost (Blender Guru, ~17min) | not measured | 101,285 video tokens at LOW (matches doc spec ≈ 100 tok/sec) |
+| Audio narration capture | confirmed via quotes | confirmed: Blender Guru direct quote *"if it's zero, you'll just see crisp glossy reflections"* + Ryan King Art design opinion *"more controllable way to create brushed patterns than the native Anisotropy slider"* — both are voiceover, not on-screen text |
+| First-try success rate | 6/7 (yesterday's churn) | 2/2 today (no 503; possibly fresh-key-quota effect; new analyzer is no worse) |
+| Output schema fidelity | clean | clean (same schema prompt; SDK doesn't change prompt path) |
+
+The audio path was already working before — yesterday's CynicatPro / CGi Jutsu / Blender Guru quotes were word-for-word voiceover. The SDK rewrite didn't change audio handling; it surfaced **token costs explicitly** for the first time, which is the operational win. Best-practices win comes from media_resolution=LOW default — 3× cheaper than the doc's "default" baseline of 258 tok/frame.
+
+### Pending corroboration carried forward
+
+After Round 8, **4 of the original 11 single-source items remain at 1/11**:
+
+- 1-2 mm gaps between intersecting objects (nuno_silva, 1/11)
+- Glossy ray amplification — multiply glossy by 5×, set diffuse to 0 (noel_3d, 1/11)
+- HDRI calibration spheres for strength tuning (coral_lab, 1/11 — Round 1 carryover, oldest pending)
+- 4-sphere HDRI calibration variant (coral_lab, 1/11 — Round 1 carryover)
+
+Plus Round 5's HDRI-on-sphere-rotation-preview remains 1/11.
+
+### Tests
+
+```
+uv run pytest tests/test_handbook.py tests/test_handbook_acceptance.py -q
+```
+
+Expected: 14/14 green. Verified before commit.
+
+### Commit
+
+`<filled in by next commit>`
+
+---
+
 ## 2026-05-08 — Round 7: Cryptomatte selective denoising → generalized to "Cryptomatte as routing mask"
 
 **Discipline note**: Targeted Round 2's rileyb3d "Cryptomatte selective denoising" carryover. WebSearch confirmed (twice, with different queries) that NO dedicated tutorial covers the specific selective-denoising application of Cryptomatte — same shape as Round 5's HDRI-calibration-spheres dead-end. Niche practitioner technique built from well-known primitives. Two recovery paths considered: (1) accept dead-end and move on, or (2) generalize the rule. Picked (2): the **architectural pattern** (Cryptomatte mask → Mix factor → selective post-effect application) IS corroborated when you don't insist on the specific effect being denoising.
